@@ -168,6 +168,11 @@ MODULE MODULE_SF_NOAHMPLSM
   INTEGER :: OPT_CROP ! options for crop model
                       ! **0 -> No crop model, will run default dynamic vegetation
                       !   1 -> Liu, et al. 2016
+  INTEGER :: OPT_IRR  ! options for irrigation
+                      ! **0 -> No irrigation
+                      !   1 -> Irrigation ON
+                      !   2 -> irrigation trigger based on crop season Planting and harvesting dates
+                      !  *3 -> irrigation trigger based on LAI threshold
 
 !------------------------------------------------------------------------------------------!
 ! Physical Constants:                                                                      !
@@ -183,6 +188,7 @@ MODULE MODULE_SF_NOAHMPLSM
   REAL, PARAMETER :: CWAT   = 4.188E06  !specific heat capacity of water (j/m3/k)
   REAL, PARAMETER :: CICE   = 2.094E06  !specific heat capacity of ice (j/m3/k)
   REAL, PARAMETER :: CPAIR  = 1004.64   !heat capacity dry air at const pres (j/kg/k)
+  REAL, PARAMETER :: CPWV   = 1846.40   !heat capacity water vapor at const pres (j/kg/k)
   REAL, PARAMETER :: TKWAT  = 0.6       !thermal conductivity of water (w/m/k)
   REAL, PARAMETER :: TKICE  = 2.2       !thermal conductivity of ice (w/m/k)
   REAL, PARAMETER :: TKAIR  = 0.023     !thermal conductivity of air (w/m/k) (not used MB: 20140718)
@@ -305,6 +311,20 @@ MODULE MODULE_SF_NOAHMPLSM
      REAL :: RSURF_EXP    !exponent in the shape parameter for soil resistance option 1
 
 !------------------------------------------------------------------------------------------!
+! From the irrigation section of MPTABLE.TBL
+!------------------------------------------------------------------------------------------!
+
+     REAL :: IRR_FRAC         ! irrigation Fraction
+  INTEGER :: IRR_HAR          ! number of days before harvest date to stop irrigation 
+     REAL :: IRR_LAI          ! Minimum lai to trigger irrigation
+     REAL :: IRR_MAD          ! management allowable deficit (0-1)
+     REAL :: FILOSS           ! fraction of flood irrigation loss (0-1) 
+     REAL :: SPRIR_RATE       ! mm/h, sprinkler irrigation rate
+     REAL :: MICIR_RATE       ! mm/h, micro irrigation rate
+     REAL :: FIRTFAC          ! flood application rate factor
+     REAL :: IR_RAIN          ! maximum precipitation to stop irrigation trigger
+
+!------------------------------------------------------------------------------------------!
 ! From the crop section of MPTABLE.TBL
 !------------------------------------------------------------------------------------------!
  
@@ -387,7 +407,8 @@ contains
                    SMCEQ   ,                                                   & ! IN : Vegetation/Soil characteristics
                    SFCTMP  , SFCPRS  , PSFC    , UU      , VV      , Q2      , & ! IN : Forcing
                    QC      , SOLDN   , LWDN    ,                               & ! IN : Forcing
-	           PRCPCONV, PRCPNONC, PRCPSHCV, PRCPSNOW, PRCPGRPL, PRCPHAIL, & ! IN : Forcing
+                   IRRFRA  , SIFAC   , MIFAC   , FIFAC   ,                     & ! IN : Irrigation: fractions
+                   PRCPCONV, PRCPNONC, PRCPSHCV, PRCPSNOW, PRCPGRPL, PRCPHAIL, & ! IN : Forcing
                    TBOT    , CO2AIR  , O2AIR   , FOLN    , FICEOLD , ZLVL    , & ! IN : Forcing
                    ALBOLD  , SNEQVO  ,                                         & ! IN/OUT : 
                    STC     , SH2O    , SMC     , TAH     , EAH     , FWET    , & ! IN/OUT : 
@@ -397,19 +418,21 @@ contains
                    STMASS  , WOOD    , STBLCP  , FASTCP  , LAI     , SAI     , & ! IN/OUT : 
                    CM      , CH      , TAUSS   ,                               & ! IN/OUT : 
                    GRAIN   , GDD     , PGS     ,                               & ! IN/OUT 
-                   SMCWTD  ,DEEPRECH , RECH    ,                               & ! IN/OUT :
-		   Z0WRF   , &
+                   SMCWTD  , DEEPRECH, RECH    ,                               & ! IN/OUT :
+                   Z0WRF   ,                                                   &
+                   IRCNTSI , IRCNTMI , IRCNTFI , IRAMTSI , IRAMTMI , IRAMTFI , & ! IN/OUT : Irrigation: vars
+                   IREVPLOS, IRSIRATE, IRMIRATE, IRFIRATE,                     & ! IN/OUT : Irrigation: vars
                    FSA     , FSR     , FIRA    , FSH     , SSOIL   , FCEV    , & ! OUT : 
                    FGEV    , FCTR    , ECAN    , ETRAN   , EDIR    , TRAD    , & ! OUT :
                    TGB     , TGV     , T2MV    , T2MB    , Q2V     , Q2B     , & ! OUT :
                    RUNSRF  , RUNSUB  , APAR    , PSN     , SAV     , SAG     , & ! OUT :
                    FSNO    , NEE     , GPP     , NPP     , FVEG    , ALBEDO  , & ! OUT :
                    QSNBOT  , PONDING , PONDING1, PONDING2, RSSUN   , RSSHA   , & ! OUT :
-		   ALBSND  , ALBSNI  ,                                         & ! OUT :
+                   ALBSND  , ALBSNI  ,                                         & ! OUT :
                    BGAP    , WGAP    , CHV     , CHB     , EMISSI  ,           & ! OUT :
-		   SHG     , SHC     , SHB     , EVG     , EVB     , GHV     , & ! OUT :
-		   GHB     , IRG     , IRC     , IRB     , TR      , EVC     , & ! OUT :
-		   CHLEAF  , CHUC    , CHV2    , CHB2    , FPICE   , PAHV    , &
+                   SHG     , SHC     , SHB     , EVG     , EVB     , GHV     , & ! OUT :
+                   GHB     , IRG     , IRC     , IRB     , TR      , EVC     , & ! OUT :
+                   CHLEAF  , CHUC    , CHV2    , CHB2    , FPICE   , PAHV    , &
                    PAHG    , PAHB    , PAH     , LAISUN  , LAISHA  , RB        & ! OUT
 #ifdef WRF_HYDRO
                    ,SFCHEADRT                                                  & ! IN/OUT :
@@ -435,8 +458,8 @@ contains
   INTEGER                        , INTENT(IN)    :: JLOC   !grid index
   REAL                           , INTENT(IN)    :: DT     !time step [sec]
   REAL, DIMENSION(       1:NSOIL), INTENT(IN)    :: ZSOIL  !layer-bottom depth from soil surf (m)
-  REAL                           , INTENT(IN)    :: Q2     !mixing ratio (kg/kg) lowest model layer
-  REAL                           , INTENT(IN)    :: SFCTMP !surface air temperature [K]
+  REAL                           , INTENT(INOUT) :: Q2     !mixing ratio (kg/kg) lowest model layer
+  REAL                           , INTENT(INOUT) :: SFCTMP !surface air temperature [K]
   REAL                           , INTENT(IN)    :: UU     !wind speed in eastward dir (m/s)
   REAL                           , INTENT(IN)    :: VV     !wind speed in northward dir (m/s)
   REAL                           , INTENT(IN)    :: SOLDN  !downward shortwave radiation (w/m2)
@@ -642,6 +665,22 @@ contains
   REAL                        , INTENT(INOUT)    :: GDD    !growing degree days
   INTEGER                     , INTENT(INOUT)    :: PGS    !plant growing stage [-]
 
+! irrigation variables 
+  REAL                        , INTENT(IN)       :: IRRFRA         ! irrigation fraction
+  REAL                        , INTENT(IN)       :: SIFAC          ! sprinkler irrigation fraction
+  REAL                        , INTENT(IN)       :: MIFAC          ! micro irrigation fraction
+  REAL                        , INTENT(IN)       :: FIFAC          ! flood irrigation fraction   
+  INTEGER                     , INTENT(INOUT)    :: IRCNTSI        ! irrigation event number, Sprinkler
+  INTEGER                     , INTENT(INOUT)    :: IRCNTMI        ! irrigation event number, Micro
+  INTEGER                     , INTENT(INOUT)    :: IRCNTFI        ! irrigation event number, Flood 
+  REAL                        , INTENT(INOUT)    :: IRAMTSI        ! irrigation water amount [m] to be applied, Sprinkler
+  REAL                        , INTENT(INOUT)    :: IRAMTMI        ! irrigation water amount [m] to be applied, Micro
+  REAL                        , INTENT(INOUT)    :: IRAMTFI        ! irrigation water amount [m] to be applied, Flood
+  REAL                        , INTENT(INOUT)    :: IREVPLOS       ! loss of irrigation water to evaporation,sprinkler [m/timestep]
+  REAL                        , INTENT(INOUT)    :: IRSIRATE       ! rate of irrigation by sprinkler [m/timestep]
+  REAL                        , INTENT(INOUT)    :: IRMIRATE       ! rate of irrigation by micro [m/timestep]
+  REAL                        , INTENT(INOUT)    :: IRFIRATE       ! rate of irrigation by micro [m/timestep]
+
 ! outputs
   REAL                          , INTENT(OUT)    :: NEE    !net ecosys exchange (g/m2/s CO2)
   REAL                          , INTENT(OUT)    :: GPP    !net instantaneous assimilation [g/m2/s C]
@@ -654,6 +693,12 @@ contains
   REAL                                           :: SNOW     !liquid equivalent snow rate (mm/s)  ! MB/AN: v3.7
   REAL                                           :: FP                                            ! MB/AN: v3.7
   REAL                                           :: PRCP                                          ! MB/AN: v3.7
+  REAL                                           :: IRLH     ! irrigation:latent heating due to sprinkler evaporation [w.m^-2]
+  REAL                                           :: MAIR     ! mass of mosit air (kg)
+  REAL                                           :: MDAIR    ! mass of dry air (kg)
+  REAL                                           :: MWV      ! mass of water vapor (kg)
+  REAL                                           :: HEAT_AIR ! heat content in moist air (j)  
+  
 !more local variables for precip heat MB
   REAL                                           :: QINTR   !interception rate for rain (mm/s)
   REAL                                           :: QDRIPR  !drip rate for rain (mm/s)
@@ -668,21 +713,22 @@ contains
   LOGICAL                             :: FROZEN_CANOPY ! used to define latent heat pathway
   LOGICAL                             :: dveg_active ! flag to run dynamic vegetation
   LOGICAL                             :: crop_active ! flag to run crop model
+  LOGICAL                             :: IRR_CHECK   ! flacg to check active irrigation
   
   ! INTENT (OUT) variables need to be assigned a value.  These normally get assigned values
   ! only if DVEG == 2.
   nee = 0.0
   npp = 0.0
   gpp = 0.0
-      PAHV  = 0.
-      PAHG  = 0.
-      PAHB  = 0.
-      PAH  = 0.
-
+  PAHV  = 0.
+  PAHG  = 0.
+  PAHB  = 0.
+  PAH  = 0.
+  IRR_CHECK = .FALSE.
 ! --------------------------------------------------------------------------------------------------
 ! re-process atmospheric forcing
 
-   CALL ATM (parameters,SFCPRS  ,SFCTMP   ,Q2      ,                            &
+108   CALL ATM (parameters,SFCPRS  ,SFCTMP   ,Q2      ,                            &
              PRCPCONV, PRCPNONC,PRCPSHCV,PRCPSNOW,PRCPGRPL,PRCPHAIL, &
              SOLDN   ,COSZ     ,THAIR   ,QAIR    ,                   & 
              EAIR    ,RHOAIR   ,QPRECC  ,QPRECL  ,SOLAD   ,SOLAI   , &
@@ -740,6 +786,52 @@ contains
      IF(parameters%urban_flag .OR. VEGTYP == parameters%ISBARREN) FVEG = 0.0
      IF(ELAI+ESAI == 0.0) FVEG = 0.0
 
+! irrigation: call trigering function
+
+     IF((VEGTYP == parameters%ISCROP) .AND. (IRRFRA .GE. parameters%IRR_FRAC) .AND. &
+       (RAIN .LT. (parameters%IR_RAIN/3600.)) .AND. ((IRAMTSI+IRAMTMI+IRAMTFI) .EQ. 0.0) )THEN
+
+        CALL TRIGGER_IRRIGATION(parameters,NSOIL,ZSOIL,SH2O,FVEG,JULIAN,IRRFRA,LAI, & !in
+                                  SIFAC,MIFAC,FIFAC,                                  & !in
+                                  IRCNTSI,IRCNTMI,IRCNTFI,                            & !inout
+                                  IRAMTSI,IRAMTMI,IRAMTFI)                              !inout
+
+     END IF
+
+! set irrigation off if parameters%IR_RAIN mm/h for this time step and irr triggered last time step
+
+     IF((RAIN .GE. (parameters%IR_RAIN/3600.)) .OR. (IRRFRA .LT. parameters%IRR_FRAC))THEN
+        IRAMTSI = 0.0
+        IRAMTMI = 0.0
+        IRAMTFI = 0.0
+     END IF
+
+! call sprinkler irrigation before CANWAT/PRECIP_HEAT to have canopy interception
+
+     IF((VEGTYP == parameters%ISCROP) .AND. (IRAMTSI .GT. 0.0) .AND. (IRR_CHECK .EQ. .FALSE.))THEN
+
+        CALL SPRINKLER_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,& !in
+                                  SFCTMP,UU,VV,EAIR,SIFAC,          & !in
+                                  IRAMTSI,IREVPLOS,IRSIRATE)          !inout
+
+        RAIN = RAIN + IRSIRATE*1000/DT ![mm/s]
+
+        ! cooling and humidification due to sprinkler evaporation, per m^2 calculation 
+
+        IRLH     = IREVPLOS*1000*HVAP                                ! heat used for evaporation (j)
+        MAIR     = 2*ZLVL*RHOAIR                                     ! mass of mosit air (kg)
+        MWV      = Q2*MAIR                                           ! mass of water vapor (kg)
+        MDAIR    = MAIR - MWV                                        ! mass of dry air (kg)
+        HEAT_AIR = ((MDAIR*CPAIR)+(MWV*CPWV))*(SFCTMP -TFRZ)         ! heat content in moist air (j)
+        HEAT_AIR = HEAT_AIR - IRLH                                   ! heat content in moist air after cooling(j)
+        MWV      = MWV + IREVPLOS*1000                               ! mass of mosit air after evaporation(kg)
+        SFCTMP   = (HEAT_AIR/((MDAIR*CPAIR)+(MWV*CPWV)))+TFRZ        ! update SFCTMP after evaporative cooling (K)
+        Q2       = MWV/MAIR                                          ! update Q2 after evaporative cooling (kg/kg)
+        IRR_CHECK = .TRUE.
+        GOTO 108
+     END IF
+
+
     CALL PRECIP_HEAT(parameters,ILOC   ,JLOC   ,VEGTYP ,DT     ,UU     ,VV     , & !in
                      ELAI   ,ESAI   ,FVEG   ,IST    ,                 & !in
                      BDFALL ,RAIN   ,SNOW   ,FP     ,                 & !in
@@ -751,14 +843,14 @@ contains
 ! compute energy budget (momentum & energy fluxes and phase changes) 
 
     CALL ENERGY (parameters,ICE    ,VEGTYP ,IST    ,NSNOW  ,NSOIL  , & !in
-                 ISNOW  ,DT     ,RHOAIR ,SFCPRS ,QAIR   , & !in
+                 ISNOW  ,DT     ,RHOAIR ,SFCPRS ,QAIR   ,         & !in
                  SFCTMP ,THAIR  ,LWDN   ,UU     ,VV     ,ZLVL   , & !in
                  CO2AIR ,O2AIR  ,SOLAD  ,SOLAI  ,COSZ   ,IGS    , & !in
-                 EAIR   ,TBOT   ,ZSNSO  ,ZSOIL  , & !in
-                 ELAI   ,ESAI   ,FWET   ,FOLN   ,         & !in
+                 EAIR   ,TBOT   ,ZSNSO  ,ZSOIL  ,                 & !in
+                 ELAI   ,ESAI   ,FWET   ,FOLN   ,                 & !in
                  FVEG   ,PAHV   ,PAHG   ,PAHB   ,                 & !in
                  QSNOW  ,DZSNSO ,LAT    ,CANLIQ ,CANICE ,iloc, jloc , & !in
-		 Z0WRF  ,                                         &
+                 Z0WRF  ,                                         &
                  IMELT  ,SNICEV ,SNLIQV ,EPORE  ,T2M    ,FSNO   , & !out
                  SAV    ,SAG    ,QMELT  ,FSA    ,FSR    ,TAUX   , & !out
                  TAUY   ,FIRA   ,FSH    ,FCEV   ,FGEV   ,FCTR   , & !out
@@ -767,10 +859,10 @@ contains
                  TV     ,TG     ,STC    ,SNOWH  ,EAH    ,TAH    , & !inout
                  SNEQVO ,SNEQV  ,SH2O   ,SMC    ,SNICE  ,SNLIQ  , & !inout
                  ALBOLD ,CM     ,CH     ,DX     ,DZ8W   ,Q2     , & !inout
-                 TAUSS  ,LAISUN ,LAISHA ,RB ,                     & !inout
+                 TAUSS  ,LAISUN ,LAISHA ,RB     ,                 & !inout
 !jref:start
-                 QC     ,QSFC   ,PSFC   , & !in 
-                 T2MV   ,T2MB  ,FSRV   , &
+                 QC     ,QSFC   ,PSFC   ,                         & !in 
+                 T2MV   ,T2MB  ,FSRV   ,                          &
                  FSRG   ,RSSUN   ,RSSHA ,ALBSND  ,ALBSNI, BGAP   ,WGAP,TGV,TGB,&
                  Q1     ,Q2V    ,Q2B    ,Q2E    ,CHV   ,CHB     , & !out
                  EMISSI ,PAH    ,                                 &
@@ -789,6 +881,7 @@ contains
      CALL WATER (parameters,VEGTYP ,NSNOW  ,NSOIL  ,IMELT  ,DT     ,UU     , & !in
                  VV     ,FCEV   ,FCTR   ,QPRECC ,QPRECL ,ELAI   , & !in
                  ESAI   ,SFCTMP ,QVAP   ,QDEW   ,ZSOIL  ,BTRANI , & !in
+                 IRRFRA ,MIFAC  ,FIFAC ,                          & !in
                  FICEOLD,PONDING,TG     ,IST    ,FVEG   ,iloc,jloc , SMCEQ , & !in
                  BDFALL ,FP     ,RAIN   ,SNOW   ,                 & !in  MB/AN: v3.7
 		 QSNOW  ,QRAIN  ,SNOWHIN,LATHEAV,LATHEAG,frozen_canopy,frozen_ground,  & !in  MB
@@ -796,6 +889,7 @@ contains
                  SNICE  ,SNLIQ  ,STC    ,ZSNSO  ,SH2O   ,SMC    , & !inout
                  SICE   ,ZWT    ,WA     ,WT     ,DZSNSO ,WSLAKE , & !inout
                  SMCWTD ,DEEPRECH,RECH                          , & !inout
+                 IRAMTFI ,IRAMTMI ,IRFIRATE ,IRMIRATE,            & !inout 
                  CMC    ,ECAN   ,ETRAN  ,FWET   ,RUNSRF ,RUNSUB , & !out
                  QIN    ,QDIS   ,PONDING1       ,PONDING2,&
                  QSNBOT                             &
@@ -1509,7 +1603,7 @@ ENDIF   ! CROPTYPE == 0
                      ELAI   ,ESAI   ,FWET   ,FOLN   ,         & !in
                      FVEG   ,PAHV   ,PAHG   ,PAHB   ,                 & !in
                      QSNOW  ,DZSNSO ,LAT    ,CANLIQ ,CANICE ,ILOC   , JLOC, & !in
-		     Z0WRF  ,                                         &
+                     Z0WRF  ,                                         &
                      IMELT  ,SNICEV ,SNLIQV ,EPORE  ,T2M    ,FSNO   , & !out
                      SAV    ,SAG    ,QMELT  ,FSA    ,FSR    ,TAUX   , & !out
                      TAUY   ,FIRA   ,FSH    ,FCEV   ,FGEV   ,FCTR   , & !out
@@ -1518,7 +1612,7 @@ ENDIF   ! CROPTYPE == 0
                      TV     ,TG     ,STC    ,SNOWH  ,EAH    ,TAH    , & !inout
                      SNEQVO ,SNEQV  ,SH2O   ,SMC    ,SNICE  ,SNLIQ  , & !inout
                      ALBOLD ,CM     ,CH     ,DX     ,DZ8W   ,Q2     , &   !inout
-                     TAUSS  ,LAISUN ,LAISHA ,RB ,                     & !inout
+                     TAUSS  ,LAISUN ,LAISHA ,RB     ,                 & !inout
 !jref:start
                      QC     ,QSFC   ,PSFC   , & !in 
                      T2MV   ,T2MB   ,FSRV   , &
@@ -1687,6 +1781,7 @@ ENDIF   ! CROPTYPE == 0
   REAL                              , INTENT(INOUT) :: RB     !leaf boundary layer resistance (s/m)
   REAL                              , INTENT(INOUT) :: LAISUN !sunlit leaf area index (m2/m2)
   REAL                              , INTENT(INOUT) :: LAISHA !shaded leaf area index (m2/m2)
+
 !  REAL                                              :: Q2E
   REAL,                               INTENT(OUT)   :: EMISSI
   REAL,                               INTENT(OUT)   :: PAH    !precipitation advected heat - total (W/m2)
@@ -2005,7 +2100,7 @@ ENDIF   ! CROPTYPE == 0
                     SHC     ,EVG     ,EVC     ,TR      ,GHV     , & !out
                     T2MV    ,PSNSUN  ,PSNSHA  ,                   & !out
 !jref:start
-                    QC      ,QSFC    ,PSFC    , & !in
+                    QC      ,QSFC    ,PSFC    ,                   & !in
                     Q2V     ,CHV2, CHLEAF, CHUC)               !inout 
 !jref:end                            
     END IF
@@ -2023,7 +2118,7 @@ ENDIF   ! CROPTYPE == 0
                     TAUXB   ,TAUYB   ,IRB     ,SHB     ,EVB     , & !out
                     GHB     ,T2MB    ,DX      ,DZ8W    ,VEGTYP  , & !out
 !jref:start
-                    QC      ,QSFC    ,PSFC    , & !in
+                    QC      ,QSFC    ,PSFC    ,  & !in
                     SFCPRS  ,Q2B,   CHB2)                          !in 
 !jref:end                            
 
@@ -3732,7 +3827,7 @@ ENDIF   ! CROPTYPE == 0
           EVC = MIN(CANICE*LATHEAV/DT,EVC)
 	END IF
 
-        B   = SAV-IRC-SHC-EVC-TR+PAHV                          !additional w/m2
+        B   = SAV-IRC-SHC-EVC-TR+PAHV                        !additional w/m2
         A   = FVEG*(4.*CIR*TV**3 + CSH + (CEV+CTR)*DESTV) !volumetric heat capacity
         DTV = B/A
 
@@ -4089,7 +4184,7 @@ ENDIF   ! CROPTYPE == 0
         SHB   = CSH * (TGB        - SFCTMP      )
         EVB   = CEV * (ESTG*RHSUR - EAIR        )
         GHB   = CGH * (TGB        - STC(ISNOW+1))
-
+ 
         B     = SAG-IRB-SHB-EVB-GHB+PAHB
         A     = 4.*CIR*TGB**3 + CSH + CEV*DESTG + CGH
         DTG   = B/A
@@ -5631,6 +5726,7 @@ ENDIF   ! CROPTYPE == 0
   SUBROUTINE WATER (parameters,VEGTYP ,NSNOW  ,NSOIL  ,IMELT  ,DT     ,UU     , & !in
                     VV     ,FCEV   ,FCTR   ,QPRECC ,QPRECL ,ELAI   , & !in
                     ESAI   ,SFCTMP ,QVAP   ,QDEW   ,ZSOIL  ,BTRANI , & !in
+                    IRRFRA ,MIFAC  ,FIFAC ,                          & !in
                     FICEOLD,PONDING,TG     ,IST    ,FVEG   ,ILOC   ,JLOC ,SMCEQ , & !in
                     BDFALL ,FP     ,RAIN   ,SNOW,                    & !in  MB/AN: v3.7
 		    QSNOW  ,QRAIN  ,SNOWHIN,LATHEAV,LATHEAG,frozen_canopy,frozen_ground,    & !in  MB
@@ -5638,6 +5734,7 @@ ENDIF   ! CROPTYPE == 0
                     SNICE  ,SNLIQ  ,STC    ,ZSNSO  ,SH2O   ,SMC    , & !inout
                     SICE   ,ZWT    ,WA     ,WT     ,DZSNSO ,WSLAKE , & !inout
                     SMCWTD ,DEEPRECH,RECH                          , & !inout
+                    IRAMTFI ,IRAMTMI ,IRFIRATE ,IRMIRATE,            & !inout 
                     CMC    ,ECAN   ,ETRAN  ,FWET   ,RUNSRF ,RUNSUB , & !out
                     QIN    ,QDIS   ,PONDING1       ,PONDING2,        &
                     QSNBOT                                           &
@@ -5729,6 +5826,14 @@ ENDIF   ! CROPTYPE == 0
   LOGICAL                           , INTENT(IN)   :: FROZEN_GROUND ! used to define latent heat pathway
   LOGICAL                           , INTENT(IN)   :: FROZEN_CANOPY ! used to define latent heat pathway
 
+! irrigation 
+  REAL,                              INTENT(IN)   :: IRRFRA   ! irrigation fraction
+  REAL,                              INTENT(IN)   :: MIFAC    ! micro irrigation fraction
+  REAL,                              INTENT(IN)   :: FIFAC    ! flood irrigation fraction
+  REAL,                              INTENT(INOUT):: IRAMTFI  ! irrigation water amount [m] to be applied, Sprinkler
+  REAL,                              INTENT(INOUT):: IRAMTMI  ! irrigation water amount [m] to be applied, Micro
+  REAL,                              INTENT(INOUT):: IRFIRATE ! rate of irrigation by micro [m/timestep]
+  REAL,                              INTENT(INOUT):: IRMIRATE ! rate of irrigation by micro [m/timestep]
 
 ! local
   INTEGER                                        :: IZ
@@ -5819,6 +5924,25 @@ ENDIF   ! CROPTYPE == 0
 #ifdef WRF_HYDRO
        QINSUR = QINSUR+sfcheadrt/DT*0.001  !sfcheadrt units (m)
 #endif
+
+! irrigation: call flood irrigation
+
+    IF((VEGTYP == parameters%ISCROP) .AND. (IRAMTFI .GT. 0.0))THEN
+       ! call flood irrigation and add to QINSUR
+       CALL FLOOD_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,FIFAC,& !in
+                             IRAMTFI,IRFIRATE)                         !inout
+       QINSUR = QINSUR + (IRFIRATE*1000.0/DT)                          ![mm/s]
+    END IF
+
+! irrigation: call flood irrigation
+
+    IF((VEGTYP == parameters%ISCROP) .AND. (IRAMTMI .GT. 0.0))THEN
+       ! call micro irrigation, assuming we implement drip in first layer 
+       ! of the Noah-MP. Change soil moisture wrt to MI rate
+       CALL MICRO_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,MIFAC, & !in
+                             IRAMTMI,IRMIRATE)                          !inout
+       SH2O(1) = SH2O(1) + (IRMIRATE/(-1*ZSOIL(1)))
+    END IF
 
 ! lake/soil water balances
 
@@ -7593,6 +7717,349 @@ ENDIF   ! CROPTYPE == 0
     WCND  = parameters%DKSAT(ISOIL) * FACTR2 ** EXPON
 
   END SUBROUTINE WDFCND2
+  
+!==========begin irrigation subroutines============================================================
+
+  SUBROUTINE TRIGGER_IRRIGATION(parameters,NSOIL,ZSOIL,SH2O,FVEG,JULIAN,IRRFRA,LAI, & !in
+                                SIFAC,MIFAC,FIFAC,                                  & !in
+                                IRCNTSI,IRCNTMI,IRCNTFI,                            & !inout
+                                IRAMTSI,IRAMTMI,IRAMTFI)                             !inout
+  !---------------------------------------------------------------------------------------------
+  ! This subroutine trigger irrigation if soil moisture less than the prescribed threshold and 
+  ! estimate irrigation water depth (m) based on rootzone soil moisture and field capacity
+  ! There are three options here to trigger the irrigation scheme
+  ! OPT_IRR = 1 -> if irrigated fraction > threshold fraction
+  ! OPT_IRR = 2 -> if irrigated fraction > threshold fraction and within crop season
+  ! OPT_IRR = 3 -> if irrigated fraction > threshold fraction and LAI > threshold LAI
+  !---------------------------------------------------------------------------------------------
+    IMPLICIT NONE
+  ! --------------------------------------------------------------------------------------------
+    ! inputs
+    type (noahmp_parameters), intent(in)   :: parameters
+    INTEGER,                  INTENT(IN)   :: NSOIL          ! number of soil layers
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)   :: ZSOIL          ! depth of layers from surface, [m]
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)   :: SH2O           ! volumteric liquid water content [%]
+    REAL,                     INTENT(IN)   :: FVEG           ! green vegetation fraction
+    REAL,                     INTENT(IN)   :: LAI            ! leaf area index (m^2/m^2)
+    REAL,                     INTENT(IN)   :: JULIAN         ! julian day
+
+    REAL,                     INTENT(IN)   :: IRRFRA         ! irrigation fraction
+    REAL,                     INTENT(IN)   :: SIFAC          ! sprinkler irrigation fraction
+    REAL,                     INTENT(IN)   :: MIFAC          ! micro irrigation fraction
+    REAL,                     INTENT(IN)   :: FIFAC          ! flood irrigation fraction
+
+    ! inouts
+    INTEGER,                  INTENT(INOUT):: IRCNTSI        ! irrigation event number, Sprinkler
+    INTEGER,                  INTENT(INOUT):: IRCNTMI        ! irrigation event number, Micro
+    INTEGER,                  INTENT(INOUT):: IRCNTFI        ! irrigation event number, Flood 
+
+    REAL,                     INTENT(INOUT):: IRAMTSI        ! irrigation water amount [m] to be applied, Sprinkler
+    REAL,                     INTENT(INOUT):: IRAMTMI        ! irrigation water amount [m] to be applied, Micro
+    REAL,                     INTENT(INOUT):: IRAMTFI        ! irrigation water amount [m] to be applied, Flood
+
+    ! local
+    REAL                                   :: SMCAVL         ! available soil moisture [m] at timestep
+    REAL                                   :: SMCLIM         ! maximum available moisture [m] (FC-PWD)
+    REAL                                   :: SMCSAT         ! maximum saturation moisture [m] (POROSITY-FC)
+    REAL                                   :: IRRWATAMT      ! irrigation water amount [m]
+    LOGICAL                                :: IRR_ACTIVE     ! irrigation check
+    INTEGER                                :: K
+  !---------------------------------------------------------------------------------------------
+
+    IRR_ACTIVE = .TRUE.
+     
+    ! check if irrigation is can be activated or not
+    IF(OPT_IRR .GE. 1)THEN
+
+      ! activate irrigation if irrigated fraction > threshold fraction
+      IF(IRRFRA .LT. parameters%IRR_FRAC)THEN
+         IRR_ACTIVE = .FALSE.
+      ELSE
+         IF (OPT_IRR .EQ. 2)THEN
+
+            ! activate irrigation if within crop season
+            IF ((JULIAN .LT. parameters%PLTDAY).OR.&
+               (JULIAN .GT. (parameters%HSDAY - parameters%IRR_HAR))) IRR_ACTIVE = .FALSE.
+
+         ELSE IF(OPT_IRR .EQ. 3)THEN
+
+            ! activate if LAI > threshold LAI
+            IF(LAI .LT. parameters%IRR_LAI) IRR_ACTIVE = .FALSE.      
+
+         END IF
+      END IF
+    END IF
+
+    IF(IRR_ACTIVE)THEN
+      SMCAVL = 0.0
+      SMCLIM = 0.0
+
+      SMCAVL = (SH2O(1)-parameters%SMCWLT(1))*-1*ZSOIL(1)              ! soil water at this time step
+      SMCLIM = (parameters%SMCREF(1)-parameters%SMCWLT(1))*-1*ZSOIL(1) ! available water
+
+      DO K = 2, parameters%NROOT
+         SMCAVL = SMCAVL + (SH2O(K)-parameters%SMCWLT(K))*(ZSOIL(K-1) - ZSOIL(K))
+         SMCLIM = SMCLIM + (parameters%SMCREF(K)-parameters%SMCWLT(K))*(ZSOIL(K-1) - ZSOIL(K))
+      END DO
+    
+      IF((SMCAVL/SMCLIM) .LE. parameters%IRR_MAD) THEN 
+
+         ! parameters%IRR_MAD- calibratable
+         ! amount of water need to be added to bring soil moisture back to 
+         ! field capacity, i.e., irrigation water amount [m]
+
+         IRRWATAMT = (SMCLIM - SMCAVL)*IRRFRA*FVEG
+         
+         ! sprinkler irrigation amount
+         IF((IRAMTSI .EQ. 0.0) .AND. (SIFAC .GT. 0.0))THEN
+            IRAMTSI = SIFAC*IRRWATAMT
+            IRCNTSI = IRCNTSI + 1
+         END IF
+
+         ! micro irrigation amount
+         IF((IRAMTMI .EQ. 0.0) .AND. (MIFAC .GT. 0.0))THEN
+            IRAMTMI = MIFAC*IRRWATAMT
+            IRCNTMI = IRCNTMI + 1
+         END IF
+
+         ! flood irrigation amount: Assumed to saturate top two layers and 
+         ! third layer to FC. As water moves from one end of the field to
+         ! another, surface layers will be saturated
+
+         IF((IRAMTFI .EQ. 0.0) .AND. (FIFAC .GT. 0.0))THEN
+            IRAMTFI = FIFAC*(IRRWATAMT)*(parameters%FILOSS+1)
+            IRCNTFI = IRCNTFI + 1
+         END IF   
+      ELSE
+         IRRWATAMT = 0.0
+         IRAMTSI   = 0.0
+         IRAMTMI   = 0.0
+         IRAMTFI   = 0.0
+      END IF
+
+    END IF   
+  END SUBROUTINE TRIGGER_IRRIGATION
+  
+ !============================================================================================================
+ 
+  SUBROUTINE SPRINKLER_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,& !in
+                                  T2,WINDU,WINDV,EAIR,SIFAC,        & !in
+                                  IRAMTSI,IREVPLOS,IRSIRATE)          !inout
+  !---------------------------------------------------------------------------------------------
+  ! This subroutine estimate irrigation water depth (m) based on sprinkler method defined in
+  ! chapter 11 of NRCS, Part 623 National Engineering Handbook. Irrigation water will be applied 
+  ! over the canopy considering, present soil moisture, infiltration rate of the soil, and 
+  ! evaporative loss. This subroutine will be called before CANWAT subroutine to estimate them
+  ! canopy water storage loss. 08/06/2020 !Prasanth VK
+  !---------------------------------------------------------------------------------------------
+    IMPLICIT NONE
+  ! --------------------------------------------------------------------------------------------
+    ! inputs
+    type (noahmp_parameters), intent(in)    :: parameters
+    INTEGER,                  INTENT(IN)    :: NSOIL
+    REAL,                     INTENT(IN)    :: DT
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)    :: SH2O
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)    :: SMC
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)    :: SICE
+    REAL,                     INTENT(IN)    :: T2
+    REAL,                     INTENT(IN)    :: WINDU
+    REAL,                     INTENT(IN)    :: WINDV
+    REAL,                     INTENT(IN)    :: EAIR
+    REAL,                     INTENT(IN)    :: SIFAC          ! sprinkler irrigation fraction
+
+    !inouts
+    REAL,                     INTENT(INOUT) :: IRAMTSI           !total irrigation water amount [m] during this schedule
+    REAL,                     INTENT(INOUT) :: IREVPLOS          !loss of irrigation water to evaporation,sprinkler [m/timestep]
+    REAL,                     INTENT(INOUT) :: IRSIRATE          !rate of irrigation by sprinkler [m/timestep]
+    ! local
+    REAL                                    :: FSUR              !infiltration rate [m/s]
+    REAL                                    :: TEMP_RATE
+    REAL                                    :: WINDSPEED
+    REAL                                    :: IRRLOSS           !temporary var for irr loss [%]
+    REAL                                    :: ESAT1
+    !REAL,    PARAMETER                     :: NRCS_RATE = 6.4   !NRCS recommended rate of application (page 11-5, 
+    !                                                            !Design considerations) in mm/hour
+    !-------------------------------------------------------------------------------------------    
+    
+    ! estimate infiltration rate based on Philips Eq.
+    CALL IRR_PHILIP_INFIL(parameters,SMC,SH2O,SICE,DT,NSOIL,FSUR)           
+    
+    ! irrigation rate of sprinkler
+    TEMP_RATE = parameters%SPRIR_RATE*(1/1000.)*DT/3600          !NRCS rate/time step - calibratable
+    IRSIRATE  = MIN(FSUR*DT,IRAMTSI,TEMP_RATE)                   !Limit the application rate to minimum of infiltration rate
+                                                                 !and to the NRCS recommended rate, mm
+
+    ! evaporative loss from droplets: Based on Bavi et al., (2009)
+    WINDSPEED = SQRT((WINDU**2)+(WINDV**2))                                                         ! [m/s]
+    ESAT1     = 610.8*EXP((17.27*(T2-273.15))/(237.3+(T2-273.15)))                                  ! [Pa]
+    IRRLOSS   = 4.375*(EXP(0.106*WINDSPEED))*(((ESAT1-EAIR)*0.01)**(-0.092))*((T2-273.15)**(-0.102)) ! [%]
+ 
+    IRSIRATE  = IRSIRATE * SIFAC
+
+    IF(IRSIRATE .GE. IRAMTSI)THEN
+       IRSIRATE = IRAMTSI
+       IRAMTSI  = 0.0
+    ELSE 
+       IRAMTSI = IRAMTSI - IRSIRATE
+    END IF
+
+    IREVPLOS = IRSIRATE*IRRLOSS*(1/100.0) 
+    IRSIRATE = IRSIRATE-IREVPLOS
+
+  END SUBROUTINE SPRINKLER_IRRIGATION
+
+  !============================================================================================================
+
+  SUBROUTINE MICRO_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,MIFAC, & !in
+                              IRAMTMI,IRMIRATE)                          !inout
+  !---------------------------------------------------------------------------------------------
+  ! This subroutine estimate irrigation water depth (m) based on Micro irrigation method defined 
+  ! in chApter 7 of NRCS, Part 623 National Engineering Handbook. Irrigation water will be applied 
+  ! under the canopy, within first layer (at ~5 cm depth) considering current soil moisture. 
+  ! This subroutine will be called after CANWAT. 08/06/2020 !PVK
+  !---------------------------------------------------------------------------------------------
+    IMPLICIT NONE
+  ! --------------------------------------------------------------------------------------------
+    ! inputs
+    type (noahmp_parameters), intent(in)    :: parameters
+    INTEGER,                  INTENT(IN)    :: NSOIL
+    REAL,                     INTENT(IN)    :: DT
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)    :: SH2O
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)    :: SMC
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)    :: SICE
+    REAL,                     INTENT(IN)    :: MIFAC     ! micro irrigation fraction
+
+    ! inout
+    REAL,                     INTENT(INOUT) :: IRAMTMI   !irrigation water amount [m]
+    REAL,                     INTENT(INOUT) :: IRMIRATE  !rate of irrigation by micro [m]
+
+    ! local
+    REAL                                    :: FSUR      !infiltration rate [m/s]
+    REAL                                    :: TEMP_RATE
+  !-----------------------------------------------------------------------------------------------------
+    ! estimate infiltration rate based on Philips Eq.
+    CALL IRR_PHILIP_INFIL(parameters,SMC,SH2O,SICE,DT,NSOIL,FSUR)
+
+    ! irrigation rate of micro irrigation
+    TEMP_RATE = parameters%MICIR_RATE*(1/1000.)*DT/3600          !NRCS rate/time step - calibratable
+    IRMIRATE  = MIN(0.5*FSUR*DT,IRAMTMI,TEMP_RATE)               !Limit the application rate to minimum 
+                                                                 !of 0.5*infiltration rate
+                                                                 !and to the NRCS recommended rate, mm
+    IRMIRATE  = IRMIRATE * MIFAC
+
+    IF(IRMIRATE .GE. IRAMTMI)THEN
+       IRMIRATE  = IRAMTMI
+       IRAMTMI = 0.0
+    ELSE 
+       IRAMTMI = IRAMTMI - IRMIRATE
+    END IF
+
+  END SUBROUTINE MICRO_IRRIGATION
+
+ !============================================================================================================
+ 
+  SUBROUTINE FLOOD_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,FIFAC,& !in
+                              IRAMTFI,IRFIRATE)                         !inout
+  !---------------------------------------------------------------------------------------------
+  ! This subroutine estimate irrigation water depth (m) based on surface flooding irrigation method 
+  ! defined in chApter 4 of NRCS, Part 623 National Engineering Handbook. Irrigation water will 
+  ! be applied on the surface based on present soil moisture and infiltration rate of the soil. 
+  ! This subroutine will be called after CANWAT subroutine to estimate them. Flooding or overland
+  ! flow is based on infiltration excess! 08/06/2020 !PVK
+  ! Average farm size based on USDA census = 443 acres ~ 1.8 km2
+  !---------------------------------------------------------------------------------------------
+    IMPLICIT NONE
+  ! --------------------------------------------------------------------------------------------
+    ! inputs
+    type (noahmp_parameters), intent(in)    :: parameters
+    INTEGER,                  INTENT(IN)    :: NSOIL
+    REAL,                     INTENT(IN)    :: DT
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)    :: SH2O
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)    :: SMC
+    REAL, DIMENSION(1:NSOIL), INTENT(IN)    :: SICE
+    REAL,                     INTENT(IN)    :: FIFAC     !fraction of grid under micro irrigation(0 to 1)
+
+    ! inout
+    REAL,                     INTENT(INOUT) :: IRAMTFI   !irrigation water amount [m]
+    REAL,                     INTENT(INOUT) :: IRFIRATE  !irrigation water rate by micro [m/timestep]
+
+    ! local
+    REAL                                    :: FSUR      !infiltration rate [m/s]
+    REAL                                    :: TEMP_RATE
+  !-----------------------------------------------------------------------------------------------------
+    ! estimate infiltration rate based on Philips Eq.
+    CALL IRR_PHILIP_INFIL(parameters,SMC,SH2O,SICE,DT,NSOIL,FSUR)
+
+    ! irrigation rate of micro irrigation
+    IRFIRATE  = FSUR*DT*parameters%FIRTFAC                   !Limit the application rate to  
+                                                             !fac*infiltration rate 
+    IRFIRATE  = IRFIRATE * FIFAC
+
+    IF(IRFIRATE .GE. IRAMTFI)THEN
+       IRFIRATE  = IRAMTFI
+       IRAMTFI = 0.0
+    ELSE 
+       IRAMTFI = IRAMTFI - IRFIRATE
+    END IF                                                              
+   
+  END SUBROUTINE FLOOD_IRRIGATION
+  
+ !============================================================================================================
+
+  SUBROUTINE IRR_PHILIP_INFIL(parameters,SMC,SH2O,SICE,DT,NSOIL, & ! in
+                              FSUR)                                ! out
+  !---------------------------------------------------------------------------------------------
+  ! This function estimate infiltration rate based on Philip's two parameter equation (Eq. 2) 
+  ! presented in Valiantzas (2010). New linearized two-parameter infiltration equation for direct
+  ! determination of conductivity and sorptivity, J. Hydrology.
+  !---------------------------------------------------------------------------------------------
+   IMPLICIT NONE
+  ! --------------------------------------------------------------------------------------------
+   type (noahmp_parameters), intent(in) :: parameters
+   INTEGER,                  INTENT(IN) :: NSOIL  !number of soil layers
+   REAL, DIMENSION(1:NSOIL), INTENT(IN) :: SMC    !soil moisture content [m3/m3]
+   REAL, DIMENSION(1:NSOIL), INTENT(IN) :: SH2O   !soil water content [m3/m3]
+   REAL, DIMENSION(1:NSOIL), INTENT(IN) :: SICE   !soil ice content [m3/m3]
+   REAL,                     INTENT(IN) :: DT     !time-step (sec)
+
+  ! outputs
+   REAL,                     INTENT(OUT):: FSUR   !surface infiltration rate (m/s)
+  ! local variables
+   REAL                                 :: WDF    !soil water diffusivity (m2/s)
+   REAL                                 :: WCND   !soil water conductivity[m/s]
+   REAL                                 :: SP     !sorptivity (LT^-1/2)
+   REAL                                 :: AP     !intial hydraulic conductivity (m/s,L/T)
+   REAL                                 :: SICEMAX
+   INTEGER                              :: ISOIL,K
+  !---------------------------------------------------------------------------------
+  ! maximum ice fraction
+    SICEMAX = 0.0
+    DO K = 1,NSOIL
+       IF (SICE(K) > SICEMAX) SICEMAX = SICE(K)
+    END DO
+
+  ! estimate initial soil hydraulic conductivty and diffusivity (Ki, D(theta) in the equation)
+   ISOIL = 1
+   CALL WDFCND2 (parameters,WDF,WCND,SH2O(ISOIL),SICEMAX,ISOIL)
+
+  ! sorptivity based on Eq. 10b from Kutílek, Miroslav, and Jana Valentová (1986) 
+  ! sorptivity approximations. Transport in Porous Media 1.1, 57-62.
+   SP = SQRT(2 * (parameters%SMCMAX(ISOIL) - SMC(ISOIL)) * (parameters%DWSAT(ISOIL) - WDF)) 
+
+  ! parameter A in Eq. 9 of Valiantzas (2010) is given by
+   AP = MIN(WCND, (2/3)*parameters%DKSAT(ISOIL))
+   AP = MAX(AP,   (1/3)*parameters%DKSAT(ISOIL))
+
+  ! maximun infiltration rate, m
+   FSUR = (1/2)*SP*(DT**(-1/2))+AP ! m/s
+   FSUR = MAX(0.0,FSUR)
+   FSUR = MIN(WCND,FSUR)
+
+  END SUBROUTINE IRR_PHILIP_INFIL
+
+!== end Phillips infiltration ======================================================================
+
+!=========end irrigation subroutines================================================================
 
 !== begin groundwater ==============================================================================
 
@@ -8988,7 +9455,7 @@ END SUBROUTINE PSN_CROP
 
   subroutine noahmp_options(idveg     ,iopt_crs  ,iopt_btr  ,iopt_run  ,iopt_sfc  ,iopt_frz , & 
                              iopt_inf  ,iopt_rad  ,iopt_alb  ,iopt_snf  ,iopt_tbot, iopt_stc, &
-			     iopt_rsf , iopt_soil, iopt_pedo, iopt_crop )
+			     iopt_rsf , iopt_soil, iopt_pedo, iopt_crop, iopt_irr )
 
   implicit none
 
@@ -9010,7 +9477,10 @@ END SUBROUTINE PSN_CROP
   INTEGER,  INTENT(IN) :: iopt_soil !soil parameters set-up option
   INTEGER,  INTENT(IN) :: iopt_pedo !pedo-transfer function (1->Saxton and Rawls)
   INTEGER,  INTENT(IN) :: iopt_crop !crop model option (0->none; 1->Liu et al.)
-
+  INTEGER,  INTENT(IN) :: iopt_irr  ! 0 -> No irrigation; 
+                                    ! 1 -> Irrigation ON;
+                                    ! 2 -> irrigation trigger based on crop season Planting and harvesting dates; 
+                                    ! 3 -> irrigation trigger based on LAI threshold
 ! -------------------------------------------------------------------------------------------------
 
   dveg = idveg
@@ -9030,7 +9500,7 @@ END SUBROUTINE PSN_CROP
   opt_soil = iopt_soil
   opt_pedo = iopt_pedo
   opt_crop = iopt_crop
-  
+  opt_irr  = iopt_irr
   end subroutine noahmp_options
  
 END MODULE MODULE_SF_NOAHMPLSM
@@ -9221,6 +9691,18 @@ MODULE NOAHMP_TABLES
     REAL :: RTPT_TABLE(NCROP,NSTAGE)    ! fraction of carbohydrate flux to root
     REAL :: GRAINPT_TABLE(NCROP,NSTAGE) ! fraction of carbohydrate flux to grain
     REAL :: BIO2LAI_TABLE(NCROP)        ! leaf are per living leaf biomass [m^2/kg]
+
+! MPTABLE.TBL irrigation parameters
+
+    REAL :: IRR_FRAC_TABLE              ! irrigation Fraction
+ INTEGER :: IRR_HAR_TABLE               ! number of days before harvest date to stop irrigation 
+    REAL :: IRR_LAI_TABLE               ! Minimum lai to trigger irrigation
+    REAL :: IRR_MAD_TABLE               ! management allowable deficit (0-1)
+    REAL :: FILOSS_TABLE                ! fraction of flood irrigation loss (0-1) 
+    REAL :: SPRIR_RATE_TABLE            ! mm/h, sprinkler irrigation rate
+    REAL :: MICIR_RATE_TABLE            ! mm/h, micro irrigation rate
+    REAL :: FIRTFAC_TABLE               ! flood application rate factor
+    REAL :: IR_RAIN_TABLE               ! maximum precipitation to stop irrigation trigger
 
 ! MPTABLE.TBL optional parameters
 
@@ -9969,6 +10451,61 @@ RSURF_SNOW_TABLE     = RSURF_SNOW
       BIO2LAI_TABLE      = BIO2LAI
 
   end subroutine read_mp_crop_parameters
+
+  subroutine read_mp_irrigation_parameters()
+    implicit none
+    integer :: ierr
+    logical :: file_named 
+
+    REAL    :: IRR_FRAC              ! irrigation Fraction
+    INTEGER :: IRR_HAR               ! number of days before harvest date to stop irrigation 
+    REAL    :: IRR_LAI               ! Minimum lai to trigger irrigation
+    REAL    :: IRR_MAD               ! management allowable deficit (0-1)
+    REAL    :: FILOSS                ! fraction of flood irrigation loss (0-1) 
+    REAL    :: SPRIR_RATE            ! mm/h, sprinkler irrigation rate
+    REAL    :: MICIR_RATE            ! mm/h, micro irrigation rate
+    REAL    :: FIRTFAC               ! flood application rate factor
+    REAL    :: IR_RAIN               ! maximum precipitation to stop irrigation trigger
+       
+    NAMELIST / noahmp_irrigation_parameters / IRR_FRAC, IRR_HAR, IRR_MAD, FILOSS, &
+                                              SPRIR_RATE, MICIR_RATE, FIRTFAC, IR_RAIN
+
+    IRR_FRAC_TABLE   = -1.E36    ! irrigation Fraction
+    IRR_HAR_TABLE    = -1.E36    ! number of days before harvest date to stop irrigation 
+    IRR_LAI_TABLE    = -1.E36    ! Minimum lai to trigger irrigation
+    IRR_MAD_TABLE    = -1.E36    ! management allowable deficit (0-1)
+    FILOSS_TABLE     = -1.E36    ! fraction of flood irrigation loss (0-1) 
+    SPRIR_RATE_TABLE = -1.E36    ! mm/h, sprinkler irrigation rate
+    MICIR_RATE_TABLE = -1.E36    ! mm/h, micro irrigation rate
+    FIRTFAC_TABLE    = -1.E36    ! flood application rate factor
+    IR_RAIN_TABLE    = -1.E36    ! maximum precipitation to stop irrigation trigger
+
+    inquire( file='MPTABLE.TBL', exist=file_named ) 
+    if ( file_named ) then
+      open(15, file="MPTABLE.TBL", status='old', form='formatted', action='read', iostat=ierr)
+    else
+      open(15, status='old', form='formatted', action='read', iostat=ierr)
+    end if
+
+    if (ierr /= 0) then
+       write(*,'("WARNING: Cannot find file MPTABLE.TBL")')
+       call wrf_error_fatal("STOP in Noah-MP read_mp_crop_parameters")
+    endif
+
+    read(15,noahmp_irrigation_parameters)
+    close(15)
+
+    IRR_FRAC_TABLE   = IRR_FRAC    ! irrigation Fraction
+    IRR_HAR_TABLE    = IRR_HAR     ! number of days before harvest date to stop irrigation 
+    IRR_LAI_TABLE    = IRR_LAI     ! Minimum lai to trigger irrigation
+    IRR_MAD_TABLE    = IRR_MAD     ! management allowable deficit (0-1)
+    FILOSS_TABLE     = FILOSS      ! fraction of flood irrigation loss (0-1) 
+    SPRIR_RATE_TABLE = SPRIR_RATE  ! mm/h, sprinkler irrigation rate
+    MICIR_RATE_TABLE = MICIR_RATE  ! mm/h, micro irrigation rate
+    FIRTFAC_TABLE    = FIRTFAC     ! flood application rate factor
+    IR_RAIN_TABLE    = IR_RAIN     ! maximum precipitation to stop irrigation trigger
+      
+  end subroutine read_mp_irrigation_parameters
 
   subroutine read_mp_optional_parameters()
     implicit none
