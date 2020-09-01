@@ -679,7 +679,7 @@ contains
   REAL                        , INTENT(INOUT)    :: IREVPLOS       ! loss of irrigation water to evaporation,sprinkler [m/timestep]
   REAL                        , INTENT(INOUT)    :: IRSIRATE       ! rate of irrigation by sprinkler [m/timestep]
   REAL                        , INTENT(INOUT)    :: IRMIRATE       ! rate of irrigation by micro [m/timestep]
-  REAL                        , INTENT(INOUT)    :: IRFIRATE       ! rate of irrigation by micro [m/timestep]
+  REAL                        , INTENT(INOUT)    :: IRFIRATE       ! rate of irrigation by micro [m/timestep] IRSIRATE, IRMIRATE, IRFIRATE, IRLH
 
 ! outputs
   REAL                          , INTENT(OUT)    :: NEE    !net ecosys exchange (g/m2/s CO2)
@@ -697,7 +697,9 @@ contains
   REAL                                           :: MAIR     ! mass of mosit air (kg)
   REAL                                           :: MDAIR    ! mass of dry air (kg)
   REAL                                           :: MWV      ! mass of water vapor (kg)
-  REAL                                           :: HEAT_AIR ! heat content in moist air (j)  
+  REAL                                           :: HEAT_CAP ! heat content in moist air (j)
+  REAL                                           :: DELTA_T  ! change in temperature due to sprinkler evaporation (K)
+  REAL                                           :: DELTA_Q  ! change in specific humidity due to sprinkler evaporation (kg/kg)
   
 !more local variables for precip heat MB
   REAL                                           :: QINTR   !interception rate for rain (mm/s)
@@ -713,7 +715,7 @@ contains
   LOGICAL                             :: FROZEN_CANOPY ! used to define latent heat pathway
   LOGICAL                             :: dveg_active ! flag to run dynamic vegetation
   LOGICAL                             :: crop_active ! flag to run crop model
-  LOGICAL                             :: IRR_CHECK   ! flacg to check active irrigation
+  LOGICAL                             :: IRR_CHECK   ! flag to check active irrigation
   
   ! INTENT (OUT) variables need to be assigned a value.  These normally get assigned values
   ! only if DVEG == 2.
@@ -822,11 +824,12 @@ contains
         MAIR     = 2*ZLVL*RHOAIR                                     ! mass of mosit air (kg)
         MWV      = Q2*MAIR                                           ! mass of water vapor (kg)
         MDAIR    = MAIR - MWV                                        ! mass of dry air (kg)
-        HEAT_AIR = ((MDAIR*CPAIR)+(MWV*CPWV))*(SFCTMP -TFRZ)         ! heat content in moist air (j)
-        HEAT_AIR = HEAT_AIR - IRLH                                   ! heat content in moist air after cooling(j)
-        MWV      = MWV + IREVPLOS*1000                               ! mass of mosit air after evaporation(kg)
-        SFCTMP   = (HEAT_AIR/((MDAIR*CPAIR)+(MWV*CPWV)))+TFRZ        ! update SFCTMP after evaporative cooling (K)
-        Q2       = MWV/MAIR                                          ! update Q2 after evaporative cooling (kg/kg)
+        HEAT_CAP = ((MDAIR*CPAIR)+(MWV*CPWV))                        ! heat capacity of moist air (j/k)
+        DELTA_T  = IRLH/HEAT_CAP                                     ! change in temperature due to sprinkler evaporation (K)
+        DELTA_Q  = IREVPLOS*1000./MAIR                               ! change in specific humidity due to sprinkler evaporation (kg/kg)
+        SFCTMP   = SFCTMP-DELTA_T                                    ! update SFCTMP after evaporative cooling (K)
+        Q2       = Q2 + DELTA_Q                                      ! update Q2 after evaporative cooling (kg/kg)
+
         IRR_CHECK = .TRUE.
         GOTO 108
      END IF
@@ -937,8 +940,8 @@ contains
                  ETRAN  ,EDIR   ,RUNSRF ,RUNSUB ,DT     ,NSOIL  , & !in
                  NSNOW  ,IST    ,ERRWAT ,ILOC   , JLOC  ,FVEG   , &
                  SAV    ,SAG    ,FSRV   ,FSRG   ,ZWT    ,PAH    , &
-                 PAHV   ,PAHG   ,PAHB   )   !in ( Except ERRWAT, which is out )
-
+                 PAHV   ,PAHG   ,PAHB   ,                         & !in ( Except ERRWAT, which is out )
+                 
 ! urban - jref
     QFX = ETRAN + ECAN + EDIR
     IF ( parameters%urban_flag ) THEN
