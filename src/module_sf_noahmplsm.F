@@ -820,18 +820,18 @@ contains
 
         ! cooling and humidification due to sprinkler evaporation, per m^2 calculation 
 
-        IRLH     = IREVPLOS*1000*HVAP                                ! heat used for evaporation (j)
-        MAIR     = 2*ZLVL*RHOAIR                                     ! mass of mosit air (kg)
-        MWV      = Q2*MAIR                                           ! mass of water vapor (kg)
-        MDAIR    = MAIR - MWV                                        ! mass of dry air (kg)
-        HEAT_CAP = ((MDAIR*CPAIR)+(MWV*CPWV))                        ! heat capacity of moist air (j/k)
-        DELTA_T  = IRLH/HEAT_CAP                                     ! change in temperature due to sprinkler evaporation (K)
-        DELTA_Q  = IREVPLOS*1000./MAIR                               ! change in specific humidity due to sprinkler evaporation (kg/kg)
-        SFCTMP   = SFCTMP-DELTA_T                                    ! update SFCTMP after evaporative cooling (K)
-        Q2       = Q2 + DELTA_Q                                      ! update Q2 after evaporative cooling (kg/kg)
+        IRLH     = IREVPLOS*1000*HVAP                                ! heat used for evaporation (j) per time step and per m2
+        !MAIR     = 2*ZLVL*RHOAIR                                     ! mass of mosit air (kg)
+        !MWV      = Q2*MAIR                                           ! mass of water vapor (kg)
+        !MDAIR    = MAIR - MWV                                        ! mass of dry air (kg)
+        !HEAT_CAP = ((MDAIR*CPAIR)+(MWV*CPWV))                        ! heat capacity of moist air (j/k)
+        !DELTA_T  = IRLH/HEAT_CAP                                     ! change in temperature due to sprinkler evaporation (K)
+        !DELTA_Q  = IREVPLOS*1000./MAIR                               ! change in specific humidity due to sprinkler evaporation (kg/kg)
+        !SFCTMP   = SFCTMP-DELTA_T                                    ! update SFCTMP after evaporative cooling (K)
+        !Q2       = Q2 + DELTA_Q                                      ! update Q2 after evaporative cooling (kg/kg)
 
-        IRR_CHECK = .TRUE.
-        GOTO 108
+        !IRR_CHECK = .TRUE.
+        !GOTO 108
      END IF
 
 
@@ -944,7 +944,9 @@ contains
                  IRSIRATE ,IRMIRATE ,IRFIRATE ,IREVPLOS ,IRLH)      !in irrigation only
                  
 ! urban - jref
-    QFX = ETRAN + ECAN + EDIR
+    QFX = ETRAN + ECAN + EDIR + (IREVPLOS *1000/DT) ! IREVPLOS (m) -> (kg/m^2.s) or (mm/s)
+    FSH = FSH - (IRLH/DT)                           ! IRLH (j per m^2.DT)-> (j/s.m^2) or (w/m2)
+    
     IF ( parameters%urban_flag ) THEN
        QSFC = QFX/(RHOAIR*CH) + QAIR
        Q2B = QSFC
