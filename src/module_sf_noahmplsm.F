@@ -679,7 +679,7 @@ contains
   REAL                        , INTENT(INOUT)    :: IREVPLOS       ! loss of irrigation water to evaporation,sprinkler [m/timestep]
   REAL                        , INTENT(INOUT)    :: IRSIRATE       ! rate of irrigation by sprinkler [m/timestep]
   REAL                        , INTENT(INOUT)    :: IRMIRATE       ! rate of irrigation by micro [m/timestep]
-  REAL                        , INTENT(INOUT)    :: IRFIRATE       ! rate of irrigation by micro [m/timestep] IRSIRATE, IRMIRATE, IRFIRATE, IRLH
+  REAL                        , INTENT(INOUT)    :: IRFIRATE       ! rate of irrigation by micro [m/timestep]
 
 ! outputs
   REAL                          , INTENT(OUT)    :: NEE    !net ecosys exchange (g/m2/s CO2)
@@ -941,6 +941,7 @@ contains
                  NSNOW  ,IST    ,ERRWAT ,ILOC   , JLOC  ,FVEG   , &
                  SAV    ,SAG    ,FSRV   ,FSRG   ,ZWT    ,PAH    , &
                  PAHV   ,PAHG   ,PAHB   ,                         & !in ( Except ERRWAT, which is out )
+                 IRSIRATE ,IRMIRATE ,IRFIRATE ,IREVPLOS ,IRLH)      !in irrigation only
                  
 ! urban - jref
     QFX = ETRAN + ECAN + EDIR
@@ -1454,7 +1455,8 @@ ENDIF   ! CROPTYPE == 0
                     ETRAN  ,EDIR   ,RUNSRF ,RUNSUB ,DT     ,NSOIL  , &
                     NSNOW  ,IST    ,ERRWAT, ILOC   ,JLOC   ,FVEG   , &
                     SAV    ,SAG    ,FSRV   ,FSRG   ,ZWT    ,PAH    , &
-                    PAHV   ,PAHG   ,PAHB   )
+                    PAHV   ,PAHG   ,PAHB   ,                         &
+                    IRSIRATE ,IRMIRATE ,IRFIRATE ,IREVPLOS ,IRLH)      !in irrigation only
 ! --------------------------------------------------------------------------------------------------
 ! check surface energy balance and water balance
 ! --------------------------------------------------------------------------------------------------
@@ -1502,6 +1504,11 @@ ENDIF   ! CROPTYPE == 0
   REAL, INTENT(IN)   :: PAHV    !precipitation advected heat - total (W/m2)
   REAL, INTENT(IN)   :: PAHG    !precipitation advected heat - total (W/m2)
   REAL, INTENT(IN)   :: PAHB    !precipitation advected heat - total (W/m2)
+  REAL                          , INTENT(IN)  :: IREVPLOS       ! loss of irrigation water to evaporation,sprinkler [m/timestep]
+  REAL                          , INTENT(IN)  :: IRSIRATE       ! rate of irrigation by sprinkler [m/timestep]
+  REAL                          , INTENT(IN)  :: IRMIRATE       ! rate of irrigation by micro [m/timestep]
+  REAL                          , INTENT(IN)  :: IRFIRATE       ! rate of irrigation by micro [m/timestep] 
+  REAL                          , INTENT(IN)  :: IRLH           ! latent heating due to sprinkler evaporation (j)
 
   INTEGER                                     :: IZ     !do-loop index
   REAL                                        :: END_WB !water storage at end of a timestep [mm]
@@ -1536,7 +1543,10 @@ ENDIF   ! CROPTYPE == 0
       call wrf_error_fatal("Stop in Noah-MP")
    END IF
 
-   ERRENG = SAV+SAG-(FIRA+FSH+FCEV+FGEV+FCTR+SSOIL) +PAH
+! add irrigation water to precipitation
+   PRCP = PRCP + (IRSIRATE+IRMIRATE+IRFIRATE-IREVPLOS)/DT ! irrigation
+
+   ERRENG = SAV+SAG-(FIRA+FSH+FCEV+FGEV+FCTR+SSOIL+(IRLH/DT)) +PAH
 !   ERRENG = FVEG*SAV+SAG-(FIRA+FSH+FCEV+FGEV+FCTR+SSOIL)
 !   WRITE(*,*) "ERRENG =",ERRENG
    IF(ABS(ERRENG) > 0.01) THEN
@@ -5937,7 +5947,7 @@ ENDIF   ! CROPTYPE == 0
        QINSUR = QINSUR + (IRFIRATE*1000.0/DT)                          ![mm/s]
     END IF
 
-! irrigation: call flood irrigation
+! irrigation: call micro irrigation
 
     IF((VEGTYP == parameters%ISCROP) .AND. (IRAMTMI .GT. 0.0))THEN
        ! call micro irrigation, assuming we implement drip in first layer 
