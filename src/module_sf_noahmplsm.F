@@ -187,6 +187,9 @@ MODULE MODULE_SF_NOAHMPLSM
                       !   1 -> sprinkler method
                       !   2 -> micro/drip irrigation
                       !   3 -> surface flooding
+  INTEGER :: OPT_GWP  ! options for irrigation groundwater pumping
+                      ! **0 -> off
+                      !   1 -> on
 
   INTEGER :: OPT_INFDV! options for infiltration in dynamic VIC runoff scheme
                       ! **1 -> Philip scheme
@@ -415,7 +418,7 @@ MODULE MODULE_SF_NOAHMPLSM
      REAL :: BDVIC         !DVIC model infiltration parameter [-] for opt_run=8
      REAL :: GDVIC         !Mean Capillary Drive (m) for infiltration models for opt_run=8
      REAL :: BBVIC         !DVIC heterogeniety parameter for infiltration for opt_run=8
-
+     REAL :: SY            !specific yield of the aquifer (m^3.m^-3)
 !------------------------------------------------------------------------------------------!
 ! From the GENPARM.TBL file
 !------------------------------------------------------------------------------------------!
@@ -747,6 +750,7 @@ contains
   REAL                                           :: SIFAC          ! sprinkler irrigation fraction (local)
   REAL                                           :: MIFAC          ! micro irrigation fraction (local)
   REAL                                           :: FIFAC          ! flood irrigation fraction (local)
+  REAL                                           :: IRRGWP         ! groundwater pumping for irrigation [m]                                    
 
 ! outputs
   REAL                          , INTENT(OUT)    :: NEE    !net ecosys exchange (g/m2/s CO2)
@@ -788,6 +792,7 @@ contains
       PAHB  = 0.
       PAH  = 0.
   CROPLU = .FALSE.
+  IRRGWP = 0.0
   
 ! --------------------------------------------------------------------------------------------------
 ! re-process atmospheric forcing
@@ -880,6 +885,9 @@ contains
         MIFAC = 0.
         FIFAC = 1.
      END IF
+
+     IF(OPT_GWP==1)IRRGWP = 0.0     
+
 ! Call triggering function
      IF((CROPLU .EQV. .TRUE.) .AND. (IRRFRA .GE. parameters%IRR_FRAC) .AND. &
        (RAIN .LT. (parameters%IR_RAIN/3600.)) .AND. ((IRAMTSI+IRAMTMI+IRAMTFI) .EQ. 0.0) )THEN
@@ -903,6 +911,7 @@ contains
         ! cooling and humidification due to sprinkler evaporation, per m^2 calculation 
         FIRR     = IREVPLOS*1000.*HVAP/DT                              ! heat used for evaporation (W/m2)
         EIRR     = IREVPLOS*1000./DT                                   ! sprinkler evaporation (mm/s)
+        IF(OPT_GWP==1)IRRGWP = IRRGWP + IRSIRATE
      END IF
 ! call for micro irrigation and flood irrigation are implemented in WATER subroutine
 ! end irrigation call-prasanth
@@ -966,7 +975,7 @@ contains
                  SNICE  ,SNLIQ  ,STC    ,ZSNSO  ,SH2O   ,SMC    , & !inout
                  SICE   ,ZWT    ,WA     ,WT     ,DZSNSO ,WSLAKE , & !inout
                  SMCWTD ,DEEPRECH,RECH                          , & !inout
-                 IRAMTFI,IRAMTMI ,IRFIRATE ,IRMIRATE,             & !inout
+                 IRAMTFI,IRAMTMI ,IRFIRATE ,IRMIRATE, IRRGWP    , & !inout
                  CMC    ,ECAN   ,ETRAN  ,FWET   ,RUNSRF ,RUNSUB , & !out
                  QIN    ,QDIS   ,PONDING1       ,PONDING2,        &
                  QSNBOT ,QTLDRN                                   &
@@ -5920,7 +5929,7 @@ ENDIF   ! CROPTYPE == 0
                     SNICE  ,SNLIQ  ,STC    ,ZSNSO  ,SH2O   ,SMC    , & !inout
                     SICE   ,ZWT    ,WA     ,WT     ,DZSNSO ,WSLAKE , & !inout
                     SMCWTD ,DEEPRECH,RECH                          , & !inout
-                    IRAMTFI,IRAMTMI ,IRFIRATE ,IRMIRATE,             & !inout
+                    IRAMTFI,IRAMTMI ,IRFIRATE ,IRMIRATE, IRRGWP    , & !inout
                     CMC    ,ECAN   ,ETRAN  ,FWET   ,RUNSRF ,RUNSUB , & !out
                     QIN    ,QDIS   ,PONDING1       ,PONDING2,        &
                     QSNBOT ,QTLDRN                                   &
@@ -6023,6 +6032,7 @@ ENDIF   ! CROPTYPE == 0
   REAL,                              INTENT(INOUT):: IRAMTMI  ! irrigation water amount [m] to be applied, Micro
   REAL,                              INTENT(INOUT):: IRFIRATE ! rate of irrigation by micro [m/timestep]
   REAL,                              INTENT(INOUT):: IRMIRATE ! rate of irrigation by micro [m/timestep]
+  REAL,                              INTENT(INOUT):: IRRGWP   ! total irrigation water from gw pumping [m]
   LOGICAL,                           INTENT(IN)   :: CROPLU   ! flag to identify croplands
 
 ! local
@@ -6121,6 +6131,7 @@ ENDIF   ! CROPTYPE == 0
        CALL FLOOD_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,FIFAC,& !in
                              IRAMTFI,IRFIRATE)                         !inout
        QINSUR = QINSUR + (IRFIRATE/DT)                                ![m/s]
+       IF(OPT_GWP==1) IRRGWP  = IRRGWP  + IRFIRATE
     END IF
 ! irrigation: call micro irrigation-pvk
     IF((CROPLU .EQV. .TRUE.) .AND. (IRAMTMI .GT. 0.0))THEN
@@ -6129,8 +6140,12 @@ ENDIF   ! CROPTYPE == 0
        CALL MICRO_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,MIFAC, & !in
                              IRAMTMI,IRMIRATE)                          !inout
        SH2O(1) = SH2O(1) + (IRMIRATE/(-1*ZSOIL(1)))
+       IF(OPT_GWP==1) IRRGWP  = IRRGWP  + IRMIRATE
     END IF
-
+!irrigation update groundwater table
+    IF(OPT_GWP==1)THEN
+      CALL GROUNDWATER_PUMPING(parameters,IRRGWP,ZWT)
+    END IF
 ! lake/soil water balances
 
     IF (IST == 2) THEN                                        ! lake
@@ -9500,6 +9515,25 @@ END SUBROUTINE RR2
 
   END SUBROUTINE IRR_PHILIP_INFIL
 
+!---------------------------------------------------------------------------------------------------
+
+  SUBROUTINE GROUNDWATER_PUMPING(parameters,IRRGWP,ZWT)
+! ----------------------------------------------------------------------
+  IMPLICIT NONE
+! ----------------------------------------------------------------------
+!input
+  type (noahmp_parameters),        intent(in) :: parameters
+  REAL,                            INTENT(IN) :: IRRGWP
+!output
+  REAL,                         INTENT(INOUT) :: ZWT   !the depth to water table [m]
+ !-------------------------------------------------------
+
+! update water table using irrigation groundwater pumping estimate
+
+  ZWT = ZWT + (IRRGWP/parameters%sy)
+
+  END SUBROUTINE GROUNDWATER_PUMPING
+
 !=========end irrigation subroutines================================================================
 
 !== begin groundwater ==============================================================================
@@ -10955,7 +10989,7 @@ END SUBROUTINE EMERG
   subroutine noahmp_options( idveg    ,iopt_crs  ,iopt_btr  ,iopt_run  ,iopt_sfc  ,iopt_frz , & 
                              iopt_inf ,iopt_rad  ,iopt_alb  ,iopt_snf  ,iopt_tbot ,iopt_stc , &
 			     iopt_rsf ,iopt_soil ,iopt_pedo ,iopt_crop ,iopt_irr  ,iopt_irrm, &
-                             iopt_infdv, iopt_tdrn)
+                             iopt_gwp ,iopt_infdv,iopt_tdrn)
 
   implicit none
 
@@ -10985,6 +11019,8 @@ END SUBROUTINE EMERG
                                     ! 1 -> sprinkler ON
                                     ! 2 -> micro/drip ON
                                     ! 3 -> flood irrigation ON
+  INTEGER,  INTENT(IN) :: iopt_gwp  ! 0-> groundwater pumping off
+                                    ! 1-> groundwater pumping on
   INTEGER,  INTENT(IN) :: iopt_infdv!infiltration options for dynamic VIC (1->Philip; 2-> Green-Ampt;3->Smith-Parlange)
   INTEGER,  INTENT(IN) :: iopt_tdrn !tile drainage (0->none; 1-> simple 2->Hooghoudt's)
 ! -------------------------------------------------------------------------------------------------
@@ -11008,6 +11044,7 @@ END SUBROUTINE EMERG
   opt_crop = iopt_crop
   opt_irr  = iopt_irr
   opt_irrm = iopt_irrm
+  opt_gwp  = iopt_gwp
   opt_infdv= iopt_infdv
   opt_tdrn = iopt_tdrn
  
@@ -11123,7 +11160,7 @@ MODULE NOAHMP_TABLES
     REAL :: BDVIC_TABLE(MAX_SOILTYP)       !VIC model infiltration parameter (-)
     REAL :: GDVIC_TABLE(MAX_SOILTYP)       !mean capilary drive (m)
     REAL :: BBVIC_TABLE(MAX_SOILTYP)       !heterogeniety parameter for DVIC infiltration [-]
-
+    REAL :: SY_TABLE(MAX_SOILTYP)          ! groundwater pumping
 ! GENPARM.TBL parameters
 
     REAL :: SLOPE_TABLE(9)    !slope factor for soil drainage
@@ -11602,7 +11639,7 @@ CONTAINS
       BDVIC_TABLE = -1.E36
       GDVIC_TABLE = -1.E36
       BBVIC_TABLE = -1.E36
-
+         SY_TABLE = -1.E36
 !
 !-----READ IN SOIL PROPERTIES FROM SOILPARM.TBL
 !
@@ -11629,7 +11666,8 @@ CONTAINS
       READ (21,*) ITMP,BEXP_TABLE(LC),SMCDRY_TABLE(LC),F1_TABLE(LC),SMCMAX_TABLE(LC),   &
                   SMCREF_TABLE(LC),PSISAT_TABLE(LC),DKSAT_TABLE(LC), DWSAT_TABLE(LC),   &
                   SMCWLT_TABLE(LC), QUARTZ_TABLE(LC),BVIC_TABLE(LC), AXAJ_TABLE(LC),    &
-                  BXAJ_TABLE(LC),XXAJ_TABLE(LC),BDVIC_TABLE(LC),BBVIC_TABLE(LC),GDVIC_TABLE(LC)
+                  BXAJ_TABLE(LC),XXAJ_TABLE(LC),BDVIC_TABLE(LC),BBVIC_TABLE(LC),        &
+                  GDVIC_TABLE(LC),SY_TABLE(LC)
     ENDDO
 
     CLOSE (21)
