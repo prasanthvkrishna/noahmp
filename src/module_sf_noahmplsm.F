@@ -9530,7 +9530,7 @@ END SUBROUTINE RR2
 
 ! update water table using irrigation groundwater pumping estimate
 
-  ZWT = ZWT + (IRRGWP/parameters%sy)
+  ZWT = ZWT - (IRRGWP/parameters%sy)
 
   END SUBROUTINE GROUNDWATER_PUMPING
 
