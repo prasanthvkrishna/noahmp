@@ -464,7 +464,8 @@ contains
                    QC      , SOLDN   , LWDN    ,                               & ! IN : Forcing
 	           PRCPCONV, PRCPNONC, PRCPSHCV, PRCPSNOW, PRCPGRPL, PRCPHAIL, & ! IN : Forcing
                    TBOT    , CO2AIR  , O2AIR   , FOLN    , FICEOLD , ZLVL    , & ! IN : Forcing
-                   IRRFRA  , SIFRA   , MIFRA   , FIFRA   , LLANDUSE,           & ! IN : Irrigation: fractions
+                   IRRFRA  , SIFRA   , MIFRA   , FIFRA   , SWFRA   , GWFRA   , & ! IN : Irrigation: fractions
+                   LLANDUSE,                                                   & ! IN : 
                    ALBOLD  , SNEQVO  ,                                         & ! IN/OUT : 
                    STC     , SH2O    , SMC     , TAH     , EAH     , FWET    , & ! IN/OUT : 
                    CANLIQ  , CANICE  , TV      , TG      , QSFC    , QSNOW   , & ! IN/OUT :
@@ -734,6 +735,8 @@ contains
   REAL                        , INTENT(IN)       :: SIFRA          ! sprinkler irrigation fraction
   REAL                        , INTENT(IN)       :: MIFRA          ! micro irrigation fraction
   REAL                        , INTENT(IN)       :: FIFRA          ! flood irrigation fraction   
+  REAL                        , INTENT(IN)       :: SWFRA          ! surface water fraction for irrigation
+  REAL                        , INTENT(IN)       :: GWFRA          ! groundwater fraction for irrigation
   INTEGER                     , INTENT(INOUT)    :: IRCNTSI        ! irrigation event number, Sprinkler
   INTEGER                     , INTENT(INOUT)    :: IRCNTMI        ! irrigation event number, Micro
   INTEGER                     , INTENT(INOUT)    :: IRCNTFI        ! irrigation event number, Flood 
@@ -750,8 +753,9 @@ contains
   REAL                                           :: SIFAC          ! sprinkler irrigation fraction (local)
   REAL                                           :: MIFAC          ! micro irrigation fraction (local)
   REAL                                           :: FIFAC          ! flood irrigation fraction (local)
-  REAL                                           :: IRRGWP         ! groundwater pumping for irrigation [m]                                    
-
+  REAL                                           :: IRRWATER       ! groundwater pumping for irrigation [m]     
+  REAL                                           :: IRRGW          ! groundwater fraction of irrigation water [m]
+ 
 ! outputs
   REAL                          , INTENT(OUT)    :: NEE    !net ecosys exchange (g/m2/s CO2)
   REAL                          , INTENT(OUT)    :: GPP    !net instantaneous assimilation [g/m2/s C]
@@ -791,8 +795,8 @@ contains
       PAHG  = 0.
       PAHB  = 0.
       PAH  = 0.
-  CROPLU = .FALSE.
-  IRRGWP = 0.0
+  CROPLU   = .FALSE.
+  IRRWATER = 0.0
   
 ! --------------------------------------------------------------------------------------------------
 ! re-process atmospheric forcing
@@ -884,9 +888,7 @@ contains
         SIFAC = 0.
         MIFAC = 0.
         FIFAC = 1.
-     END IF
-
-     IF(OPT_GWP==1)IRRGWP = 0.0     
+     END IF   
 
 ! Call triggering function
      IF((CROPLU .EQV. .TRUE.) .AND. (IRRFRA .GE. parameters%IRR_FRAC) .AND. &
@@ -911,7 +913,7 @@ contains
         ! cooling and humidification due to sprinkler evaporation, per m^2 calculation 
         FIRR     = IREVPLOS*1000.*HVAP/DT                              ! heat used for evaporation (W/m2)
         EIRR     = IREVPLOS*1000./DT                                   ! sprinkler evaporation (mm/s)
-        IF(OPT_GWP==1)IRRGWP = IRRGWP + IRSIRATE
+        IRRWATER = IRRWATER + IRSIRATE
      END IF
 ! call for micro irrigation and flood irrigation are implemented in WATER subroutine
 ! end irrigation call-prasanth
@@ -975,7 +977,7 @@ contains
                  SNICE  ,SNLIQ  ,STC    ,ZSNSO  ,SH2O   ,SMC    , & !inout
                  SICE   ,ZWT    ,WA     ,WT     ,DZSNSO ,WSLAKE , & !inout
                  SMCWTD ,DEEPRECH,RECH                          , & !inout
-                 IRAMTFI,IRAMTMI ,IRFIRATE ,IRMIRATE, IRRGWP    , & !inout
+                 IRAMTFI,IRAMTMI ,IRFIRATE ,IRMIRATE, IRRWATER  , & !inout
                  CMC    ,ECAN   ,ETRAN  ,FWET   ,RUNSRF ,RUNSUB , & !out
                  QIN    ,QDIS   ,PONDING1       ,PONDING2,        &
                  QSNBOT ,QTLDRN                                   &
@@ -1019,6 +1021,12 @@ contains
 IF((CROPLU .EQV. .TRUE.) .AND. (IRRFRA .GE. parameters%IRR_FRAC))THEN
    PRCP = PRCP + ((IRSIRATE+IRMIRATE+IRFIRATE)*1000./DT)  ! irrigation
    FSH  = FSH - FIRR                                      ! (W/m2)
+
+   !irrigation pumping and update groundwater table
+   IF(OPT_GWP==1)THEN
+     IRRGW = GWFRA*IRRWATER
+     CALL GROUNDWATER_PUMPING(parameters,IRRGW,ZWT)
+   END IF
 END IF
 
 ! water and energy balance check
@@ -5929,7 +5937,7 @@ ENDIF   ! CROPTYPE == 0
                     SNICE  ,SNLIQ  ,STC    ,ZSNSO  ,SH2O   ,SMC    , & !inout
                     SICE   ,ZWT    ,WA     ,WT     ,DZSNSO ,WSLAKE , & !inout
                     SMCWTD ,DEEPRECH,RECH                          , & !inout
-                    IRAMTFI,IRAMTMI ,IRFIRATE ,IRMIRATE, IRRGWP    , & !inout
+                    IRAMTFI,IRAMTMI ,IRFIRATE ,IRMIRATE, IRRWATER  , & !inout
                     CMC    ,ECAN   ,ETRAN  ,FWET   ,RUNSRF ,RUNSUB , & !out
                     QIN    ,QDIS   ,PONDING1       ,PONDING2,        &
                     QSNBOT ,QTLDRN                                   &
@@ -6032,7 +6040,7 @@ ENDIF   ! CROPTYPE == 0
   REAL,                              INTENT(INOUT):: IRAMTMI  ! irrigation water amount [m] to be applied, Micro
   REAL,                              INTENT(INOUT):: IRFIRATE ! rate of irrigation by micro [m/timestep]
   REAL,                              INTENT(INOUT):: IRMIRATE ! rate of irrigation by micro [m/timestep]
-  REAL,                              INTENT(INOUT):: IRRGWP   ! total irrigation water from gw pumping [m]
+  REAL,                              INTENT(INOUT):: IRRWATER ! total irrigation water [m]
   LOGICAL,                           INTENT(IN)   :: CROPLU   ! flag to identify croplands
 
 ! local
@@ -6130,22 +6138,20 @@ ENDIF   ! CROPTYPE == 0
        ! call flood irrigation and add to QINSUR
        CALL FLOOD_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,FIFAC,& !in
                              IRAMTFI,IRFIRATE)                         !inout
-       QINSUR = QINSUR + (IRFIRATE/DT)                                ![m/s]
-       IF(OPT_GWP==1) IRRGWP  = IRRGWP  + IRFIRATE
+       QINSUR    = QINSUR + (IRFIRATE/DT)                              ![m/s]
+       IRRWATER  = IRRWATER  + IRFIRATE
     END IF
+
 ! irrigation: call micro irrigation-pvk
     IF((CROPLU .EQV. .TRUE.) .AND. (IRAMTMI .GT. 0.0))THEN
        ! call micro irrigation, assuming we implement drip in first layer 
        ! of the Noah-MP. Change layer 1 moisture wrt to MI rate-pvk
        CALL MICRO_IRRIGATION(parameters,NSOIL,DT,SH2O,SMC,SICE,MIFAC, & !in
                              IRAMTMI,IRMIRATE)                          !inout
-       SH2O(1) = SH2O(1) + (IRMIRATE/(-1*ZSOIL(1)))
-       IF(OPT_GWP==1) IRRGWP  = IRRGWP  + IRMIRATE
+       SH2O(1)   = SH2O(1)   + (IRMIRATE/(-1*ZSOIL(1)))
+       IRRWATER  = IRRWATER  + IRMIRATE
     END IF
-!irrigation update groundwater table
-    IF(OPT_GWP==1)THEN
-      CALL GROUNDWATER_PUMPING(parameters,IRRGWP,ZWT)
-    END IF
+
 ! lake/soil water balances
 
     IF (IST == 2) THEN                                        ! lake
@@ -9517,20 +9523,20 @@ END SUBROUTINE RR2
 
 !---------------------------------------------------------------------------------------------------
 
-  SUBROUTINE GROUNDWATER_PUMPING(parameters,IRRGWP,ZWT)
+  SUBROUTINE GROUNDWATER_PUMPING(parameters,IRRWATER,ZWT)
 ! ----------------------------------------------------------------------
   IMPLICIT NONE
 ! ----------------------------------------------------------------------
 !input
   type (noahmp_parameters),        intent(in) :: parameters
-  REAL,                            INTENT(IN) :: IRRGWP
+  REAL,                            INTENT(IN) :: IRRWATER
 !output
   REAL,                         INTENT(INOUT) :: ZWT   !the depth to water table [m]
  !-------------------------------------------------------
 
 ! update water table using irrigation groundwater pumping estimate
 
-  ZWT = ZWT - (IRRGWP/parameters%sy)
+  ZWT = ZWT - (IRRWATER/parameters%sy)
 
   END SUBROUTINE GROUNDWATER_PUMPING
 
