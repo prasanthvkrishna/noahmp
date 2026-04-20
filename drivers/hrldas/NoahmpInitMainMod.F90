@@ -48,9 +48,7 @@ contains
     elsewhere
          NoahmpIO%LANDMASK = -1
     endwhere
-    print*,"shape=",shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
-    print*,"shape=",shape(NoahmpIO%SNOWH)
-    print*,"shape=",shape(NoahmpIO%SNOW)
+
     ! only initialize for non-restart case
     if ( .not. NoahmpIO%restart_flag ) then
 
