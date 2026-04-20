@@ -13,6 +13,10 @@ module NoahmpMosaicSortTileCatMod
   use Machine
   use NoahmpIOVarType
 
+#ifdef MPP_LAND
+  use module_mpp_land, only:mpp_land_bcast_int1, my_id, IO_id, mpp_status, numprocs, calculate_ntilemax_mpp
+#endif
+
   implicit none
 
 contains
@@ -39,6 +43,8 @@ contains
     real(kind=kind_noahmp), allocatable, dimension(:) :: frac_vec
     real(kind=kind_noahmp), allocatable, dimension(:) :: sorted_values
     real(kind=kind_noahmp), allocatable, dimension(:) :: rescaled_values
+    integer                                           :: local_NTilesMax
+    integer                                           :: global_NTilesMax
 ! -------------------------------------------------------------------------
     associate(                                                      &
               XSTART               =>  NoahmpIO%XSTART             ,&
@@ -63,9 +69,11 @@ contains
 
 
  ! initialize temp variables   
-    temp_val       = 0.
-    NTilesMax      = 0
-    cumulative_sum = 0.
+    temp_val         = 0.
+    NTilesMax        = 1
+    cumulative_sum   = 0.
+    global_NTilesMax = 1
+    local_NTilesMax  = 1
 
 !   Step 2: Loop over each grid cell (i,j)
     do i = XSTART, XEND
@@ -114,36 +122,41 @@ contains
                 exit
              endif
           end do
-
-          ! Step 4: Rescale selected values to sum to 1
-          do k = 1, n_dominant
-             rescaled_values(k) = sorted_values(k) / cumulative_sum
-          end do
-
-          !print for diagnosis
-          !if(i .eq. 450 .and. j .eq. 450) then
-          !    WRITE(*,'(A,I2,A,I2,A)') 'Grid (', i, ',', j, '): Dominant Land Cover Types (>90% of total)'
-          !    DO k = 1, n_dominant
-          !      WRITE(*,'(A,I2,A,F7.4,A,F7.4)') '  Type: ', sorted_indices(k), &
-          !              '  Original: ', sorted_values(k), '  Rescaled: ', rescaled_values(k)
-          !    END DO
-          !    WRITE(*,'(A,F7.4)') '  Sum of Rescaled Fractions: ', SUM(rescaled_values(1:n_dominant))
-          !    PRINT *, '-------------------------------------------------------------'
-          !end if
-          
-          if(n_dominant==0)SubGrdIndexSorted(i,j,k) = NoahmpIO%ISWATER
+          ! Safety: If no valid tiles found, set at least 1 tile (water or default)
+          if (n_dominant == 0) then
+             n_dominant = 1
+             sorted_indices(1) = NoahmpIO%ISWATER
+             rescaled_values(1) = 1.0_kind_noahmp
+          else
+             ! Step 4: Rescale to sum = 1.0
+             do k = 1, n_dominant
+                rescaled_values(k) = sorted_values(k) / cumulative_sum
+             end do
+          endif
 
           do k = 1, n_dominant
              SubGrdFracRescaled(i,j,k)  =  rescaled_values(k)
              SubGrdIndexSorted(i,j,k)   =  sorted_indices(k)
-             NumberOfTiles(i,j)         =  n_dominant ! it is <= NTiles_user
-             NTilesMax                  =  min(max(NTilesMax,n_dominant), NTiles_user) ! maximum value across domain
-             if( (SubGrdFracRescaled(i,j,k)==0) .and. (SubGrdIndexSorted(i,j,k)==0) )then
-               SubGrdIndexSorted(i,j,k) = NoahmpIO%ISWATER
-             endif
+             NumberOfTiles(i,j)         =  max(1,n_dominant) ! it is >0 and <= NTiles_user
+             local_NTilesMax            =  min(max(NTilesMax,n_dominant), NTiles_user) ! maximum value across domain
+             !if( (SubGrdFracRescaled(i,j,k)==0) .and. (SubGrdIndexSorted(i,j,k)==0) )then
+             ! SubGrdIndexSorted(i,j,k) = NoahmpIO%ISWATER
+             !endif
           enddo
        end do
     end do
+
+#ifdef MPP_LAND
+
+   call calculate_ntilemax_mpp(local_NTilesMax,global_NTilesMax)
+    ! Broadcast the final global max back to all ranks
+    call mpp_land_bcast_int1(global_NTilesMax)
+
+    ! Store final result
+    NTilesMax = min(global_NTilesMax, NTiles_user)
+#else
+    NTilesMax = local_NTilesMax
+#endif
 
     end associate
 

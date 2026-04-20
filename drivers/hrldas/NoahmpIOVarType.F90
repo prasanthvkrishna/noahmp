@@ -113,7 +113,25 @@ module NoahmpIOVarType
     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  MP_SNOW             ! snow precipitation entering land model [mm]       ! MB/AN : v3.7 
     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  MP_GRAUP            ! graupel precipitation entering land model [mm]    ! MB/AN : v3.7
     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  MP_HAIL             ! hail precipitation entering land model [mm]       ! MB/AN : v3.7 
-    
+
+    real(kind=kind_noahmp), allocatable, dimension (:,:,:) :: SMOIS_in
+    real(kind=kind_noahmp), allocatable, dimension (:,:,:) :: TSLB_in
+    real(kind=kind_noahmp), allocatable, dimension (:,:)   :: CANWAT_in
+    real(kind=kind_noahmp), allocatable, dimension (:,:)   :: TSK_in
+    real(kind=kind_noahmp), allocatable, dimension (:,:)   :: SNOW_in
+    real(kind=kind_noahmp), allocatable, dimension (:,:)   :: SNOWH_in
+    real(kind=kind_noahmp), allocatable, dimension (:,:)   :: VEGFRA_in
+    real(kind=kind_noahmp), allocatable, dimension (:,:)   :: LAI_in
+    real(kind=kind_noahmp), allocatable, dimension (:,:)   :: GVFMIN_in 
+    real(kind=kind_noahmp), allocatable, dimension (:,:)   :: GVFMAX_in
+    real(kind=kind_noahmp), allocatable, dimension(:,:)    :: T_PHY_in               ! 3D atmospheric temperature valid at mid-levels [K]
+    real(kind=kind_noahmp), allocatable, dimension(:,:)    :: QV_CURR_in             ! 3D water vapor mixing ratio [kg/kg_dry]
+    real(kind=kind_noahmp), allocatable, dimension(:,:)    :: U_PHY_in               ! 3D U wind component [m/s]
+    real(kind=kind_noahmp), allocatable, dimension(:,:)    :: V_PHY_in               ! 3D V wind component [m/s]
+    real(kind=kind_noahmp), allocatable, dimension(:,:)    :: P8W_in                 ! 3D pressure, valid at interface [Pa]
+    real(kind=kind_noahmp), allocatable, dimension(:,:)    :: RadSwDirFrac_in
+    real(kind=kind_noahmp), allocatable, dimension(:,:)    :: RadSwVisFrac_in
+
 #ifdef WRF_HYDRO
     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  infxsrt             ! surface infiltration
     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  sfcheadrt           ! surface water head

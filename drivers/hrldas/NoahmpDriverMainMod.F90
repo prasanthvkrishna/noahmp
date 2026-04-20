@@ -152,8 +152,8 @@ contains
              cycle ILOOP                                                                      ! Skip any sea-ice points
           else
              if ( (NoahmpIO%XLAND(I,J)-1.5) >= 0.0 ) cycle ILOOP                              ! Skip any open water points
-
-             MOSAIC_LOOP : do N = 1, NoahmpIO%NumberOfTiles(I,J)                              ! NoahMP mosaic/subgrid case 
+              if (NoahmpIO%NumberOfTiles(I,J) > 0) then
+               MOSAIC_LOOP : do N = 1, NoahmpIO%NumberOfTiles(I,J)                              ! NoahMP mosaic/subgrid case 
 
                 !------------------------------------------------------------------------------------
                 !  initialize 2D subgrid index based on lulc/soiltype/hydrotype to 3D subgrid fraction
@@ -223,7 +223,7 @@ contains
                 call BiochemVarOutTransfer(noahmp, NoahmpIO) 
 
              enddo MOSAIC_LOOP
-
+            endif
           endif     ! land-sea split ends
 
        enddo ILOOP  ! I loop

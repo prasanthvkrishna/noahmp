@@ -48,7 +48,9 @@ contains
     elsewhere
          NoahmpIO%LANDMASK = -1
     endwhere
-print*,shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
+    print*,"shape=",shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
+    print*,"shape=",shape(NoahmpIO%SNOWH)
+    print*,"shape=",shape(NoahmpIO%SNOW)
     ! only initialize for non-restart case
     if ( .not. NoahmpIO%restart_flag ) then
 
@@ -58,9 +60,11 @@ print*,shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
           print*, 'SNOW HEIGHT NOT FOUND - VALUE DEFINED IN LSMINIT'
           do J = jts, jtf
              do I = its, itf
+               if(NoahmpIO%NumberOfTiles(I,J) > 0)then
                 do N=1, NoahmpIO%NumberOfTiles(I,J)  
                    NoahmpIO%SNOWH(I,J,N) = NoahmpIO%SNOW(I,J,N) * 0.005  ! SNOW in mm and SNOWH in m
                 enddo
+               endif
              enddo
           enddo
        endif
@@ -69,6 +73,7 @@ print*,shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
        ! the Noah-MP code does it internally but if we don't do it here, problems ensue
        do J = jts, jtf
           do I = its, itf
+            if(NoahmpIO%NumberOfTiles(I,J) > 0)then
              do N=1, NoahmpIO%NumberOfTiles(I,J)  
                if ( NoahmpIO%SNOW(I,J,N)  < 0.0 ) NoahmpIO%SNOW(I,J,N)  = 0.0 
                if ( NoahmpIO%SNOWH(I,J,N) < 0.0 ) NoahmpIO%SNOWH(I,J,N) = 0.0
@@ -81,6 +86,7 @@ print*,shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
                   NoahmpIO%SNOW (I,J,N) = 2000.0                                                     ! cap SNOW at 2000, maintain density
                endif
              enddo
+            endif
           enddo
        enddo
 
@@ -99,6 +105,7 @@ print*,shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
        ! initialize soil liquid water content SH2O
        do J = jts , jtf
           do I = its , itf
+            if(NoahmpIO%NumberOfTiles(I,J) > 0)then
              do N = 1, NoahmpIO%NumberOfTiles(I,J) 
                 if(NoahmpIO%IOPT_MOSAIC == 1) then                                           ! if mosaic is based ob lulc
                    NoahmpIO%IVGTYP(I,J) = NoahmpIO%SubGrdIndexSorted(I,J,N)
@@ -138,12 +145,14 @@ print*,shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
                    endif
                 endif
              enddo
+            endif
           enddo ! I
        enddo    ! J
 
        ! initilize other quantities
        do J = jts, jtf
           do I = its, itf
+            if(NoahmpIO%NumberOfTiles(I,J) > 0)then
              do N = 1, NoahmpIO%NumberOfTiles(I,J)
                 if(NoahmpIO%IOPT_MOSAIC == 1) then                                           ! if mosaic is based ons lulc
                    NoahmpIO%IVGTYP(I,J) = NoahmpIO%SubGrdIndexSorted(I,J,N)
@@ -290,6 +299,7 @@ print*,shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
                   endif
                 endif
              enddo  ! N
+            endif
           enddo     ! I
        enddo        ! J
        
@@ -315,6 +325,7 @@ print*,shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
        do J = jts, jtf
           do I = its, itf
              do IZ = -NoahmpIO%NSNOW+1, 0
+               if(NoahmpIO%NumberOfTiles(I,J) > 0)then
                 do N = 1, NoahmpIO%NumberOfTiles(I,J) 
                    if ( (NoahmpIO%SNLIQXY(I,IZ,J,N)+NoahmpIO%SNICEXY(I,IZ,J,N)) > 0.0 ) then
                       NoahmpIO%MassConcBCPHIXY(I,IZ,J,N) = NoahmpIO%BCPHIXY(I,IZ,J,N) / (NoahmpIO%SNLIQXY(I,IZ,J,N) + NoahmpIO%SNICEXY(I,IZ,J,N))
@@ -338,6 +349,7 @@ print*,shape(NoahmpIO%NumberOfTiles),jts,jtf,its,itf
                       NoahmpIO%MassConcDUST5XY(I,IZ,J,N) = 0.0
                    endif
                 enddo
+               endif
              enddo
           enddo
        enddo            

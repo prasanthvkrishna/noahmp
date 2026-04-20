@@ -79,7 +79,23 @@ contains
     if ( .not. allocated (NoahmpIO%U_PHY)     ) allocate ( NoahmpIO%U_PHY      (XSTART:XEND,KDS:KDE,YSTART:YEND) ) ! 3D U wind component [m/s]
     if ( .not. allocated (NoahmpIO%V_PHY)     ) allocate ( NoahmpIO%V_PHY      (XSTART:XEND,KDS:KDE,YSTART:YEND) ) ! 3D V wind component [m/s]
     if ( .not. allocated (NoahmpIO%P8W)       ) allocate ( NoahmpIO%P8W        (XSTART:XEND,KDS:KDE,YSTART:YEND) ) ! 3D pressure, valid at interface [Pa]
- 
+    if ( .not. allocated (NoahmpIO%SMOIS_in)  ) allocate ( NoahmpIO%SMOIS_in   (XSTART:XEND,1:NoahmpIO%NSOIL,YSTART:YEND))
+    if ( .not. allocated (NoahmpIO%TSLB_in)   ) allocate ( NoahmpIO%TSLB_in    (XSTART:XEND,1:NoahmpIO%NSOIL,YSTART:YEND))
+    if ( .not. allocated (NoahmpIO%CANWAT_in) ) allocate ( NoahmpIO%CANWAT_in  (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%TSK_in)    ) allocate ( NoahmpIO%TSK_in     (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%SNOW_in)   ) allocate ( NoahmpIO%SNOW_in    (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%SNOWH_in)  ) allocate ( NoahmpIO%SNOWH_in   (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%VEGFRA_in) ) allocate ( NoahmpIO%VEGFRA_in  (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%LAI_in)    ) allocate ( NoahmpIO%LAI_in     (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%GVFMIN_in) ) allocate ( NoahmpIO%GVFMIN_in  (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%GVFMAX_in) ) allocate ( NoahmpIO%GVFMAX_in  (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%T_PHY_in)  ) allocate ( NoahmpIO%T_PHY_in   (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%QV_CURR_in)) allocate ( NoahmpIO%QV_CURR_in (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%U_PHY_in)  ) allocate ( NoahmpIO%U_PHY_in   (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%V_PHY_in)  ) allocate ( NoahmpIO%V_PHY_in   (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%P8W_in)    ) allocate ( NoahmpIO%P8W_in     (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%RadSwDirFrac_in) ) allocate ( NoahmpIO%RadSwDirFrac_in  (XSTART:XEND,YSTART:YEND) )
+    if ( .not. allocated (NoahmpIO%RadSwVisFrac_in) ) allocate ( NoahmpIO%RadSwVisFrac_in  (XSTART:XEND,YSTART:YEND) )
     ! spatial varying parameter map
     if ( NoahmpIO%IOPT_SOIL > 1 ) then
        if ( .not. allocated (NoahmpIO%soilcomp)) allocate ( NoahmpIO%soilcomp (XSTART:XEND,1:2*NSOIL,YSTART:YEND) ) ! Soil sand and clay content [fraction]
@@ -722,6 +738,24 @@ contains
     NoahmpIO%MP_HAIL         = 0.0
     NoahmpIO%SFCRUNOFF       = 0.0
     NoahmpIO%UDRUNOFF        = 0.0
+ 
+    NoahmpIO%SMOIS_in        = undefined_real
+    NoahmpIO%TSLB_in         = undefined_real
+    NoahmpIO%CANWAT_in       = undefined_real
+    NoahmpIO%TSK_in          = undefined_real
+    NoahmpIO%SNOW_in         = undefined_real
+    NoahmpIO%SNOWH_in        = undefined_real
+    NoahmpIO%VEGFRA_in       = undefined_real
+    NoahmpIO%LAI_in          = undefined_real
+    NoahmpIO%GVFMIN_in       = undefined_real
+    NoahmpIO%GVFMAX_in       = undefined_real
+    NoahmpIO%T_PHY_in        = undefined_real
+    NoahmpIO%QV_CURR_in      = undefined_real
+    NoahmpIO%U_PHY_in        = undefined_real
+    NoahmpIO%V_PHY_in        = undefined_real
+    NoahmpIO%P8W_in          = undefined_real
+    NoahmpIO%RadSwDirFrac_in = undefined_real
+    NoahmpIO%RadSwVisFrac_in = undefined_real
 
     ! additional output
     NoahmpIO%PAHXY           = undefined_real
@@ -1046,7 +1080,8 @@ contains
 #endif 
    
     end associate
- 
+   print*,"in NIO shape=",shape(NoahmpIO%SNOWH)
+   print*,"in NIO shape=",shape(NoahmpIO%SNOW)
   end subroutine NoahmpIOVarInitDefault
 
 end module NoahmpIOVarInitMod
