@@ -350,8 +350,8 @@ contains
          if (NoahmpIO%rank == 0) write(*, *)
          if (NoahmpIO%rank == 0) write(*, '(" ***** Namelist error: ******************************************************")')
          if (NoahmpIO%rank == 0) write(*, '(" ***** ")')
-         if (NoahmpIO%rank == 0) write(*, '(" *****       When running BEP/BEM, num_urban_atmosphere must contain at least 3 levels, ")')
-         if (NoahmpIO%rank == 0) write(*, '(" *****        decrease URBAN_ATMOSPHERE_THICKNESS")')
+         if (NoahmpIO%rank == 0) write(*, '(" ***** When running BEP/BEM, num_urban_atmosphere must contain at least 3 levels, ")')
+         if (NoahmpIO%rank == 0) write(*, '(" ***** increase ZLVL or decrease URBAN_ATMOSPHERE_THICKNESS")')
          if (NoahmpIO%rank == 0) write(*, *)
          stop
        endif

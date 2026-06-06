@@ -343,8 +343,8 @@ contains
          write(*, *)
          write(*, '(" ***** Namelist error: ******************************************************")')
          write(*, '(" ***** ")')
-         write(*, '(" *****       When running BEP/BEM, num_urban_atmosphere must contain at least 3 levels, ")')
-         write(*, '(" *****        decrease URBAN_ATMOSPHERE_THICKNESS")')
+         write(*, '(" ***** When running BEP/BEM, num_urban_atmosphere must contain at least 3 levels, ")')
+         write(*, '(" ***** increase ZLVL or decrease URBAN_ATMOSPHERE_THICKNESS")')
          write(*, *)
          stop
        endif
