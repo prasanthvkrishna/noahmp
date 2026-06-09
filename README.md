@@ -31,9 +31,9 @@ Technical documentation freely available at http://dx.doi.org/10.5065/ew8g-yr95
 **Noah-MP development priority paper**: He, C., Chen, F., Barlage, M., Yang, Z.-L., Wegiel, J. W., Niu, G.-Y., Gochis, D., Mocko, D. M., Abolafia-Rosenzweig, R., Zhang, Z., Lin, T.-S., Valayamkunnath, P., Ek, M., and Niyogi, D. (2023): Enhancing the community Noah-MP land model capabilities for Earth sciences and applications, Bull. Amer. Meteor. Soc., E2023–E2029, https://doi.org/10.1175/BAMS-D-23-0249.1
 
 
-## Noah-MP Strategic Plan Committee
+## Noah-MP Strategic Planning Committee
 
-Cenlin He, Prasanth Valayamkunnath, Michael Barlage, David Mocko, Guo-Yue Niu, Myung-Seo Koo, Fei Chen, Jerry Wiegel, Zong-Liang Yang, Dev Niyogi, Xuemei Wang, Gonzalo Miguez-Macho
+Cenlin He, Prasanth Valayamkunnath, Michael Barlage, David Mocko, Guo-Yue Niu, Myung-Seo Koo, Fei Chen, Jerry W. Wegiel, Zong-Liang Yang, Dev Niyogi, Xuemei Wang, Gonzalo Miguez-Macho
 
 
 ## Noah-MP Code Review Committee
