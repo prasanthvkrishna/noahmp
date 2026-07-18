@@ -134,29 +134,63 @@ contains
              end do
           endif
 
+!          do k = 1, n_dominant
+!             SubGrdFracRescaled(i,j,k)  =  rescaled_values(k)
+!             SubGrdIndexSorted(i,j,k)   =  sorted_indices(k)
+!             local_NTilesMax            =  min(max(NTilesMax,n_dominant), NTiles_user) ! maximum value across domain
+!             NumberOfTiles(i,j)         =  min(local_NTilesMax,n_dominant) ! it is >0 and <= NTiles_user
+!          enddo
+!
+!          if(i.eq.869.and.j.eq.21) then
+!             print*,'NTilesMax=',NTilesMax
+!             print*,'n_dominant=',n_dominant
+!             print*,'NTiles_user=',NTiles_user
+!             print*,'local_NTilesMax=',local_NTilesMax
+!             print*,'NumberOfTiles(i,j)=',NumberOfTiles(i,j)
+!          endif
+!
+          NumberOfTiles(i,j) = n_dominant 
+          
           do k = 1, n_dominant
              SubGrdFracRescaled(i,j,k)  =  rescaled_values(k)
              SubGrdIndexSorted(i,j,k)   =  sorted_indices(k)
-             NumberOfTiles(i,j)         =  max(1,n_dominant) ! it is >0 and <= NTiles_user
-             local_NTilesMax            =  min(max(NTilesMax,n_dominant), NTiles_user) ! maximum value across domain
-             !if( (SubGrdFracRescaled(i,j,k)==0) .and. (SubGrdIndexSorted(i,j,k)==0) )then
-             ! SubGrdIndexSorted(i,j,k) = NoahmpIO%ISWATER
-             !endif
           enddo
-       end do
+
+          ! Track the running maximum across the ENTIRE local domain
+          local_NTilesMax = max(local_NTilesMax, n_dominant)
+
+      end do
     end do
 
+!#ifdef MPP_LAND
+!
+!   call calculate_ntilemax_mpp(local_NTilesMax,global_NTilesMax)
+!    ! Broadcast the final global max back to all ranks
+!    call mpp_land_bcast_int1(global_NTilesMax)
+!
+!    ! Store final result
+!    NTilesMax = min(global_NTilesMax, NTiles_user)
+!#else
+!    NTilesMax = local_NTilesMax
+!#endif
+
 #ifdef MPP_LAND
-
-   call calculate_ntilemax_mpp(local_NTilesMax,global_NTilesMax)
-    ! Broadcast the final global max back to all ranks
+    call calculate_ntilemax_mpp(local_NTilesMax, global_NTilesMax)
     call mpp_land_bcast_int1(global_NTilesMax)
-
-    ! Store final result
+   
     NTilesMax = min(global_NTilesMax, NTiles_user)
 #else
-    NTilesMax = local_NTilesMax
+    NTilesMax = min(local_NTilesMax, NTiles_user)
 #endif
+
+    ! CRITICAL: Cap individual grid cell tile counts to the final allocated NTilesMax 
+    ! to prevent downstream out-of-bounds errors if global max exceeded NTiles_user.
+    do i = XSTART, XEND
+      do j = YSTART, YEND
+         NumberOfTiles(i,j) = min(NumberOfTiles(i,j), NTilesMax)
+      enddo
+    enddo
+    print*,'NoahmpMosaicSortTileCat: ',"NTilesMax=",NTilesMax
 
     end associate
 
